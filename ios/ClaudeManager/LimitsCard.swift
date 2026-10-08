@@ -1,72 +1,108 @@
 import SwiftUI
 
-/// Compact version of claude-monitor's screen: one bar per limit with its reset countdown.
+/// claude-monitor's limits as a row of ring gauges, one per limit.
 struct LimitsCard: View {
     let usage: Usage?
     let error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             if let usage {
-                ForEach(usage.limits) { LimitRow(limit: $0) }
-            } else if let error {
-                Label("Limits unavailable", systemImage: "gauge.with.dots.needle.0percent")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.amber)
-                Text(error).font(.caption).foregroundStyle(Theme.secondary)
-            } else {
-                HStack { Spacer(); ProgressView(); Spacer() }
-            }
-        }
-        .padding(.vertical, 6)
-    }
-}
-
-struct LimitRow: View {
-    let limit: Usage.Limit
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(limit.shortLabel)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.cream)
-                Spacer()
-                TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                    if let at = limit.resetsAt {
-                        Text("resets in \(ResetFormat.countdown(to: at, now: ctx.date))")
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(usage.limits) { limit in
+                        LimitRing(limit: limit).frame(maxWidth: .infinity)
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(Theme.secondary)
-                Text("\(Int(limit.percent.rounded()))%")
-                    .font(.system(.title3, design: .rounded, weight: .bold))
-                    .foregroundStyle(Theme.tint(for: limit.percent))
-                    .contentTransition(.numericText(value: limit.percent))
-                    .animation(.snappy, value: limit.percent)
-                    .frame(minWidth: 52, alignment: .trailing)
+            } else if let error {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Limits unavailable", systemImage: "gauge.with.dots.needle.0percent")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.amber)
+                    Text(error).font(.caption).foregroundStyle(Theme.secondary)
+                }
+            } else {
+                HStack { Spacer(); ProgressView(); Spacer() }.frame(height: 150)
             }
-            BarGauge(percent: limit.percent)
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+struct LimitRing: View {
+    let limit: Usage.Limit
+
+    /// "Week · All models" → ("Week", "All models")
+    private var title: (String, String?) {
+        let parts = limit.shortLabel.components(separatedBy: " · ")
+        return (parts[0], parts.count > 1 ? parts[1] : nil)
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                RingGauge(percent: limit.percent, lineWidth: 9)
+                HStack(alignment: .firstTextBaseline, spacing: 1) {
+                    Text("\(Int(limit.percent.rounded()))")
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .contentTransition(.numericText(value: limit.percent))
+                    Text("%")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.secondary)
+                }
+                .foregroundStyle(Theme.cream)
+                .animation(.snappy, value: limit.percent)
+            }
+            .frame(width: 84, height: 84)
+
+            VStack(spacing: 2) {
+                Text(title.0.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(Theme.cream)
+                Text(title.1 ?? " ")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.secondary)
+                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                    if let at = limit.resetsAt {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text(ResetFormat.countdown(to: at, now: ctx.date))
+                        }
+                    }
+                }
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(Theme.tint(for: limit.percent).opacity(0.85))
+                .padding(.top, 2)
+            }
+            .lineLimit(1)
         }
     }
 }
 
-struct BarGauge: View {
+struct RingGauge: View {
     let percent: Double
+    var lineWidth: CGFloat = 22
+
     @State private var shown: Double = 0
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Theme.track)
-                Capsule()
-                    .fill(LinearGradient(colors: Theme.gradient(for: percent), startPoint: .leading, endPoint: .trailing))
-                    .frame(width: max(8, geo.size.width * shown / 100))
-                    .shadow(color: Theme.gradient(for: percent)[0].opacity(0.5), radius: 5)
-            }
+        let colors = Theme.gradient(for: percent)
+        ZStack {
+            Circle().stroke(Theme.track, lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: max(0.004, shown / 100))
+                .stroke(
+                    AngularGradient(colors: colors + [colors[0]], center: .center,
+                                    startAngle: .degrees(0), endAngle: .degrees(360 * max(shown, 1) / 100 + 1)),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .shadow(color: colors[0].opacity(0.55), radius: 8)
         }
-        .frame(height: 8)
-        .onAppear { withAnimation(.spring(response: 1.0, dampingFraction: 0.85).delay(0.15)) { shown = min(percent, 100) } }
-        .onChange(of: percent) { _, new in withAnimation(.spring) { shown = min(new, 100) } }
+        .onAppear { animate(to: percent) }
+        .onChange(of: percent) { _, new in animate(to: new) }
+    }
+
+    private func animate(to value: Double) {
+        withAnimation(.spring(response: 1.1, dampingFraction: 0.85)) { shown = min(value, 100) }
     }
 }
