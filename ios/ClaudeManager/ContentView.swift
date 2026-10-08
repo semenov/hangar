@@ -130,9 +130,6 @@ struct ContentView: View {
                 Spacer()
                 if store.busy.contains(s.name) {
                     ProgressView()
-                } else if s.link != nil {
-                    Image(systemName: "arrow.up.forward.app")
-                        .foregroundStyle(Theme.peach)
                 }
             }
         }
