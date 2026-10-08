@@ -42,7 +42,7 @@ iPhone ──wss──▶ hangar.semenov.ai (relay) ◀──wss── Mac (hang
 ```
 
 The Mac keeps one outgoing WebSocket to the relay, so it opens no ports; each phone gets a channel
-on it. The relay only forwards frames (`relay/`, on its own droplet):
+on it. The relay only forwards frames (`relay/`, on thor behind Caddy, deployed with homebase):
 
 - The Mac proves its ID to the relay by signing a challenge with Ed25519 (the ID is the start of
   SHA-256 of its public key), so nobody else can take it.
@@ -59,10 +59,9 @@ on it. The relay only forwards frames (`relay/`, on its own droplet):
   seconds, so this is most of the traffic saved. If both sides offer `"compress": ["deflate"]` in the
   handshake, messages start with a flag byte (0 as is, 1 raw DEFLATE) and big ones are compressed
   before encryption.
-- The relay runs on nbio (an event loop, not a goroutine per connection) and terminates TLS itself
-  (autocert, Let's Encrypt), with no proxy in front: about 17 KB per connection, so a $6 droplet
-  (1 GB) holds tens of thousands of connected Macs. Measured: 3000 Macs + 3000 phones over TLS,
-  ~100 MB, load 0.2.
+- The relay runs on nbio (an event loop, not a goroutine per connection): ~5–10 KB per Mac+phone
+  pair in the relay itself, down from ~75 KB. On its own server it can also terminate TLS itself
+  (`TLS_DOMAINS`, autocert), with no proxy in front: measured ~17 KB per connection including TLS.
 
 This is the only way in: `hangar serve` has no HTTP listener and no tokens, and the app has no
 built-in server address.
@@ -122,10 +121,9 @@ hangar serve            the background service the app talks to
   (renaming over the old binary, so running keepers keep theirs). End-to-end test against a running
   relay and `hangar serve`: `HANGAR_E2E_LINK="$(hangar pair --no-wait | grep -o 'hangar://[^ ]*')"
   go test -run TestPhoneE2E -v`.
-- `relay/`: the relay, also serving the landing page, `/privacy` and `/pair`. It runs on the
-  droplet `hangar-relay` (ams3, systemd unit `hangar-relay`, `TLS_DOMAINS` in the unit);
-  `relay/deploy.sh` builds and installs it. Without `TLS_DOMAINS` it serves plain HTTP on `$PORT`
-  behind a proxy, which is how it ran on thor with homebase.
+- `relay/`: the relay, also serving the landing page, `/privacy` and `/pair`. `homebase deploy`
+  from that folder puts it on thor (https://hangar.semenov.ai), as plain HTTP on `$PORT` behind
+  Caddy. With `TLS_DOMAINS=host1,host2` (and ports 80/443 free) it serves HTTPS itself instead.
 - `ios/`: the SwiftUI app and widget (XcodeGen). `swift tools/Icon.swift <out.png>` renders the
   icon.
 
