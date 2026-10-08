@@ -79,14 +79,14 @@ struct Icon: View {
     var body: some View {
         ZStack {
             // Night sky.
-            LinearGradient(colors: [Color(hex: 0x1F3A6E), Color(hex: 0x16305E), Color(hex: 0x0B1834)],
+            LinearGradient(colors: [Color(hex: 0x5146D9), Color(hex: 0x3557C9), Color(hex: 0x183A82)],
                            startPoint: .top, endPoint: UnitPoint(x: 0.5, y: ground / canvas))
-            RadialGradient(colors: [Color(hex: 0x3F78B5, opacity: 0.6), .clear],
+            RadialGradient(colors: [Color(hex: 0x6FB6FF, opacity: 0.5), .clear],
                            center: UnitPoint(x: 0.5, y: 0.3), startRadius: 0, endRadius: 560)
 
             // Ground: a little lighter than the sky right below the horizon.
             Rectangle()
-                .fill(LinearGradient(colors: [Color(hex: 0x0D1A33), Color(hex: 0x03050B)],
+                .fill(LinearGradient(colors: [Color(hex: 0x172A66), Color(hex: 0x070A20)],
                                      startPoint: .top, endPoint: .bottom))
                 .frame(height: canvas - ground)
                 .frame(maxHeight: .infinity, alignment: .bottom)
