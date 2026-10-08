@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -265,6 +266,24 @@ func main() {
 			log.Printf("stopped pid %d", pid)
 		}
 		writeJSON(w, map[string]bool{"ok": err == nil}, err)
+	})
+	// Limits come from claude-monitor (~/Dev/claude-monitor), which runs `claude -p /usage`.
+	usageURL := envOr("USAGE_URL", "http://127.0.0.1:4001/api/usage")
+	usageClient := &http.Client{Timeout: 75 * time.Second}
+	mux.HandleFunc("GET /api/usage", func(w http.ResponseWriter, r *http.Request) {
+		u := usageURL
+		if r.URL.Query().Get("refresh") == "1" {
+			u += "?refresh=1"
+		}
+		resp, err := usageClient.Get(u)
+		if err != nil {
+			writeJSON(w, nil, apiError{502, "claude-monitor: " + err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))

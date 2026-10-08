@@ -5,6 +5,8 @@ import Observation
 @Observable
 final class Store {
     var overview: Overview?
+    var usage: Usage?
+    var usageError: String?
     var error: String?
     var isLoading = false
     var fetchedAt: Date?
@@ -41,6 +43,17 @@ final class Store {
         } catch let e as URLError where e.code == .cancelled {
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    func refreshUsage(force: Bool = false) async {
+        do {
+            usage = try await API.usage(force: force)
+            usageError = nil
+        } catch is CancellationError {
+        } catch let e as URLError where e.code == .cancelled {
+        } catch {
+            usageError = error.localizedDescription
         }
     }
 

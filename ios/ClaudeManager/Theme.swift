@@ -9,8 +9,26 @@ enum Theme {
     static let bgTop = Color(red: 0.110, green: 0.078, blue: 0.067)
     static let bgBottom = Color(red: 0.047, green: 0.039, blue: 0.035)
     static let card = Color.white.opacity(0.05)
+    static let track = Color.white.opacity(0.08)
     static let secondary = cream.opacity(0.55)
     static let green = Color(red: 0.494, green: 0.812, blue: 0.533)
+
+    /// Gauge colors shift from coral to amber to red as a limit fills up.
+    static func gradient(for percent: Double) -> [Color] {
+        switch percent {
+        case ..<70: [coral, peach]
+        case ..<90: [coral, amber]
+        default: [amber, red]
+        }
+    }
+
+    static func tint(for percent: Double) -> Color {
+        switch percent {
+        case ..<70: peach
+        case ..<90: amber
+        default: red
+        }
+    }
 }
 
 struct Background: View {

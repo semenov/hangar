@@ -17,6 +17,8 @@ in the Claude app, stops them, starts sessions in existing projects in `~/Dev` a
   `~/Library/Logs/claude-rc-<name>.log` at 20 MB and drops the `CLAUDE_CODE_*` markers it may
   inherit (with `CLAUDE_CODE_CHILD_SESSION` set, sessions don't save transcripts).
   A session stuck on an unknown prompt shows up as `waiting` with the screen text.
+  - `GET /api/usage`: subscription limits, proxied from claude-monitor's backend (`USAGE_URL`,
+    default `http://127.0.0.1:4001/api/usage`).
 - `ios/`: SwiftUI app (XcodeGen). `tools/make_icon.py` renders the icon.
 
 ## Auth

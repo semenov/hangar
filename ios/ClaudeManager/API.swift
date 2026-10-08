@@ -32,6 +32,31 @@ struct Overview: Codable, Equatable {
     let projects: [Project]
 }
 
+/// Subscription limits, from claude-monitor's backend (proxied by claude-manager).
+struct Usage: Codable, Equatable {
+    struct Limit: Codable, Equatable, Identifiable {
+        let id: String
+        let label: String
+        let percent: Double
+        let resetsAt: Date?
+        let resets: String
+
+        /// "Current week (Fable)" → "Week · Fable"
+        var shortLabel: String {
+            label.replacingOccurrences(of: "Current ", with: "").capitalizedFirst
+                .replacingOccurrences(of: " (", with: " · ").replacingOccurrences(of: ")", with: "")
+                .replacingOccurrences(of: "all models", with: "All models")
+        }
+    }
+
+    let limits: [Limit]
+    let fetchedAt: Date
+}
+
+private extension String {
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
 /// Talks to the claude-manager backend on the Mac.
 enum API {
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +84,10 @@ enum API {
 
     static func overview() async throws -> Overview {
         try await request("GET", "/api/overview")
+    }
+
+    static func usage(force: Bool = false) async throws -> Usage {
+        try await request("GET", "/api/usage" + (force ? "?refresh=1" : ""), timeout: 80)
     }
 
     /// Starts a session; the backend waits until it is registered, so this can take ~10 s.

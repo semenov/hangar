@@ -61,6 +61,14 @@ struct ContentView: View {
                 try? await Task.sleep(for: .seconds(5))
             }
         }
+        .task(id: scenePhase) {
+            // Limits change slowly and are expensive to fetch (claude-monitor caches them for 60 s).
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await store.refreshUsage()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
     }
 
     private var list: some View {
@@ -70,6 +78,12 @@ struct ContentView: View {
             }
             if store.overview == nil && store.error == nil {
                 ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
+            }
+            if search.isEmpty {
+                Section("Limits") {
+                    LimitsCard(usage: store.usage, error: store.usageError)
+                        .listRowBackground(Theme.card)
+                }
             }
             if search.isEmpty && !store.sessions.isEmpty {
                 Section("Running · \(store.sessions.filter { !$0.server }.count)") {
@@ -83,7 +97,11 @@ struct ContentView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .refreshable { await store.refresh() }
+        .refreshable {
+            async let s: Void = store.refresh()
+            async let u: Void = store.refreshUsage(force: true)
+            _ = await (s, u)
+        }
         .animation(.default, value: store.overview)
     }
 
