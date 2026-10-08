@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -119,8 +121,9 @@ func cmdSetup(args []string) error {
 
 	fmt.Println(dim.Render("  Claude Code asks whether you trust a folder, and whether to use its .mcp.json servers,"))
 	fmt.Println(dim.Render("  before a session in it can start. Nobody is at the terminal to answer when you start one"))
-	fmt.Println(dim.Render("  from the phone."))
-	c.AutoTrust = confirm("Answer yes to these for projects in "+c.ProjectsDir+"?", true)
+	fmt.Println(dim.Render("  from the phone. Yes marks " + c.ProjectsDir + " as trusted in Claude Code (projects in it"))
+	fmt.Println(dim.Render("  inherit that) and lets hangar answer the .mcp.json question."))
+	c.AutoTrust = confirm("Trust the projects in "+c.ProjectsDir+"?", true)
 	if !c.AutoTrust {
 		fmt.Println(dim.Render("  Sessions in folders you haven't trusted yet will wait; the app shows what they're asking."))
 	}
@@ -145,6 +148,9 @@ func cmdSetup(args []string) error {
 	devRoot = conf().ProjectsDir
 	fmt.Println()
 	step(true, "Saved "+tildePath(configPath()))
+	if err := presetClaudeDialogs(); err != nil {
+		step(false, "Couldn't update ~/.claude.json ("+err.Error()+"); sessions will answer the dialogs themselves")
+	}
 
 	// 3. Background jobs: the API, restore after reboot, daily descriptions.
 	if !noService {
@@ -172,16 +178,102 @@ func cmdSetup(args []string) error {
 	return cmdPair(nil)
 }
 
-// remoteControlConsented: Claude Code records the one-time consent in ~/.claude.json.
-func remoteControlConsented() bool {
-	data, err := os.ReadFile(filepath.Join(homeDir, ".claude.json"))
+func claudeConfigPath() string { return filepath.Join(homeDir, ".claude.json") }
+
+// readClaudeConfig keeps numbers as written (timestamps don't survive float64 formatting).
+func readClaudeConfig() (map[string]any, error) {
+	data, err := os.ReadFile(claudeConfigPath())
 	if err != nil {
-		return false
+		return nil, err
 	}
 	var m map[string]any
-	json.Unmarshal(data, &m)
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// remoteControlConsented: Claude Code records the one-time consent in ~/.claude.json.
+func remoteControlConsented() bool {
+	m, _ := readClaudeConfig()
 	v, _ := m["remoteDialogSeen"].(bool)
 	return v
+}
+
+// claudeTrusts: whether Claude Code trusts dir. Trust is inherited from a parent folder, so one
+// entry for the projects folder covers every project in it.
+func claudeTrusts(m map[string]any, dir string) bool {
+	projects, _ := m["projects"].(map[string]any)
+	for d := dir; ; d = filepath.Dir(d) {
+		if p, ok := projects[d].(map[string]any); ok && p["hasTrustDialogAccepted"] == true {
+			return true
+		}
+		if d == filepath.Dir(d) {
+			return false
+		}
+	}
+}
+
+// presetClaudeDialogs records in ~/.claude.json what the user agreed to in `hangar setup`, so
+// Claude Code doesn't ask: trust in the projects folder and Remote Control's consent. Answering the
+// dialogs in the keeper stays as the fallback (e.g. if a running claude writes its older copy back).
+// Does nothing when both are already there.
+func presetClaudeDialogs() error {
+	c := conf()
+	m, err := readClaudeConfig()
+	if err != nil {
+		return err
+	}
+	dir := c.ProjectsDir
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = r
+	}
+	trust := c.AutoTrust && !claudeTrusts(m, dir)
+	consent := c.AcceptRemoteControl && m["remoteDialogSeen"] != true
+	if !trust && !consent {
+		return nil
+	}
+	if trust {
+		projects, _ := m["projects"].(map[string]any)
+		if projects == nil {
+			projects = map[string]any{}
+			m["projects"] = projects
+		}
+		p, _ := projects[dir].(map[string]any)
+		if p == nil {
+			p = map[string]any{}
+			projects[dir] = p
+		}
+		p["hasTrustDialogAccepted"] = true
+	}
+	if consent {
+		m["remoteDialogSeen"] = true
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(m); err != nil {
+		return err
+	}
+	mode := os.FileMode(0o600)
+	if fi, err := os.Stat(claudeConfigPath()); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	tmp := fmt.Sprintf("%s.hangar-%d.tmp", claudeConfigPath(), os.Getpid())
+	if err := os.WriteFile(tmp, buf.Bytes(), mode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, claudeConfigPath()); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if trust {
+		log.Printf("Claude Code now trusts %s", tildePath(dir))
+	}
+	return nil
 }
 
 func waitRelay(max time.Duration) bool {

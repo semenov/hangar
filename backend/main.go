@@ -147,6 +147,7 @@ func startSession(req startRequest) (Session, error) {
 	for time.Now().Before(deadline) {
 		select {
 		case <-exited:
+			removeDesired(req.Name) // it would only fail again after a reboot
 			return Session{}, apiError{500, "the session exited right away: " + logTail(req.Name)}
 		case <-time.After(500 * time.Millisecond):
 		}
@@ -210,6 +211,32 @@ func stopSession(pid int) error {
 	return nil
 }
 
+// restartSession stops a session and starts it again in the same folder with --continue (same
+// conversation): the fix for a session whose link to the app went quiet.
+func restartSession(pid int) (Session, error) {
+	sessions, err := findSessions()
+	if err != nil {
+		return Session{}, err
+	}
+	var s *Session
+	for i := range sessions {
+		if sessions[i].PID == pid {
+			s = &sessions[i]
+		}
+	}
+	if s == nil {
+		return Session{}, apiError{404, "no session with pid " + strconv.Itoa(pid)}
+	}
+	if s.Server || s.Dir == "" || strings.HasPrefix(s.Dir, "/") {
+		return Session{}, apiError{400, s.Name + " isn't in a project folder under " + tildePath(devRoot)}
+	}
+	if err := stopSession(s.PID); err != nil {
+		return Session{}, err
+	}
+	time.Sleep(time.Second)
+	return startSession(startRequest{Name: s.Name, Dir: s.Dir, Resume: true})
+}
+
 // version is set at build time (-ldflags "-X main.version=..."); apiVersion changes when the app
 // and the server need to agree on something new.
 var version = "dev"
@@ -241,6 +268,9 @@ func serve() {
 	log.Printf("hangar %s, projects in %s", version, devRoot)
 	if conf().Relay == "" {
 		log.Fatalf("no relay in %s; the app can't reach this Mac", configPath())
+	}
+	if err := presetClaudeDialogs(); err != nil {
+		log.Printf("~/.claude.json: %v; sessions answer the dialogs themselves", err)
 	}
 	runRelay(conf().Relay, apiMux())
 }
@@ -279,6 +309,18 @@ func apiMux() *http.ServeMux {
 			log.Printf("stopped pid %d", pid)
 		}
 		writeJSON(w, map[string]bool{"ok": err == nil}, err)
+	})
+	mux.HandleFunc("POST /api/sessions/{pid}/restart", func(w http.ResponseWriter, r *http.Request) {
+		pid, err := strconv.Atoi(r.PathValue("pid"))
+		if err != nil {
+			writeJSON(w, nil, apiError{400, "bad pid"})
+			return
+		}
+		s, err := restartSession(pid)
+		if err == nil {
+			log.Printf("restarted %s: %s", s.Name, orDefault(s.URL, s.State))
+		}
+		writeJSON(w, s, err)
 	})
 	mux.HandleFunc("GET /api/usage", func(w http.ResponseWriter, r *http.Request) {
 		u, err := fetchUsage(r.URL.Query().Get("refresh") == "1")

@@ -187,6 +187,25 @@ type Project struct {
 	Modified    time.Time `json:"modified"`
 	Git         bool      `json:"git"`
 	Description string    `json:"description,omitempty"`
+	// Why its last session ended, if it crashed or didn't start; cleared by the next start.
+	LastExit   string    `json:"last_exit,omitempty"`
+	LastExitAt time.Time `json:"last_exit_at,omitzero"`
+}
+
+// exitedStates: the sessions that crashed or didn't start, by project directory.
+func exitedStates() map[string]keeperState {
+	res := map[string]keeperState{}
+	entries, _ := os.ReadDir(stateDir)
+	for _, e := range entries {
+		name, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || name == "desired" {
+			continue
+		}
+		if st, ok := readState(name); ok && st.State == "exited" {
+			res[relDir(st.Dir)] = st
+		}
+	}
+	return res
 }
 
 func listProjects() ([]Project, error) {
@@ -196,6 +215,7 @@ func listProjects() ([]Project, error) {
 	}
 	var res []Project
 	descs := loadDescriptions()
+	exited := exitedStates()
 	for _, e := range entries {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
@@ -205,8 +225,12 @@ func listProjects() ([]Project, error) {
 			continue
 		}
 		_, gitErr := os.Stat(filepath.Join(devRoot, e.Name(), ".git"))
-		res = append(res, Project{Name: e.Name(), Modified: info.ModTime().Truncate(time.Second), Git: gitErr == nil,
-			Description: descriptionFor(e.Name(), descs)})
+		p := Project{Name: e.Name(), Modified: info.ModTime().Truncate(time.Second), Git: gitErr == nil,
+			Description: descriptionFor(e.Name(), descs)}
+		if st, ok := exited[e.Name()]; ok {
+			p.LastExit, p.LastExitAt = st.Waiting, st.ExitedAt
+		}
+		res = append(res, p)
 	}
 	return res, nil
 }

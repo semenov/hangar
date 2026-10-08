@@ -23,10 +23,11 @@ hangar setup
 
 1. checks that Claude Code is installed and signed in with claude.ai (Remote Control needs a Pro,
    Max, Team or Enterprise plan);
-2. asks for the projects folder (one subfolder per project), whether hangar may answer Claude
-   Code's folder-trust and `.mcp.json` dialogs for those projects (nobody is at the terminal when
-   you start a session from the phone), and, if you haven't yet, for Remote Control's one-time
-   consent;
+2. asks for the projects folder (one subfolder per project), whether to trust the projects in it
+   (nobody is at the terminal to answer Claude Code's folder-trust and `.mcp.json` dialogs when you
+   start a session from the phone), and, if you haven't yet, for Remote Control's one-time consent.
+   Your answers go into `~/.claude.json` (trust in the projects folder covers every project in it),
+   so Claude Code doesn't ask; hangar still answers the dialogs if they show up anyway;
 3. starts `hangar serve` in the background (`brew services`), plus a login item that brings
    sessions back after a reboot and, if you want, a daily job that describes new projects;
 4. shows a QR code: scan it with the iPhone camera, and the Hangar app is paired.

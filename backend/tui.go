@@ -419,6 +419,8 @@ func (m model) row(it item, selected bool) string {
 			dot, info = amber.Render("◌"), amber.Render("stopping…")
 		case s.State == "waiting":
 			dot, info = amber.Render("●"), waitingStyle.Render("waiting: "+short(s.Waiting, 50))
+		case s.State == "disconnected":
+			dot, info = red.Render("●"), red.Render(short(s.Waiting, 50))
 		case s.State != "ready":
 			dot, info = amber.Render("◌"), dim.Render("starting…")
 		}

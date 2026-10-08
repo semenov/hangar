@@ -59,7 +59,7 @@ struct ProjectEditor: View {
                         .disabled(describing)
                     Button {
                         Task {
-                            if let t = await store.regenerateDescription(project) { text = t } else { error = store.error }
+                            do { text = try await store.regenerateDescription(project) } catch { self.error = error.localizedDescription }
                         }
                     } label: {
                         HStack {
@@ -108,21 +108,18 @@ struct ProjectEditor: View {
         error = nil
         Task {
             defer { saving = false }
-            var path = project
-            if newName != currentName {
-                guard let renamed = await store.rename(project, to: newName) else {
-                    error = store.error
-                    return
+            do {
+                var path = project
+                if newName != currentName {
+                    path = try await store.rename(project, to: newName)
                 }
-                path = renamed
-            }
-            if trimmed != original {
-                guard await store.saveDescription(path, trimmed) else {
-                    error = store.error
-                    return
+                if trimmed != original {
+                    try await store.saveDescription(path, trimmed)
                 }
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
             }
-            dismiss()
         }
     }
 }

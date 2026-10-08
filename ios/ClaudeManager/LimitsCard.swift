@@ -8,9 +8,21 @@ struct LimitsCard: View {
     var body: some View {
         Group {
             if let usage {
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(usage.limits) { limit in
-                        LimitRing(limit: limit).frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 0) {
+                        ForEach(usage.limits) { limit in
+                            LimitRing(limit: limit).frame(maxWidth: .infinity)
+                        }
+                    }
+                    // Old numbers look just like new ones: say when they're from and why.
+                    if let problem = error ?? usage.error {
+                        Label {
+                            Text("As of \(usage.fetchedAt.formatted(.relative(presentation: .named))). \(problem)")
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(Theme.amber)
                     }
                 }
             } else if let error {

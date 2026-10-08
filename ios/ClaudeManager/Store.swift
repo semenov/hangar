@@ -9,7 +9,10 @@ final class Store {
     var overview: Overview? = API.cachedOverview // last known state, shown while the request runs
     var usage: Usage? = API.cachedUsage
     var usageError: String?
+    /// The Mac couldn't be reached or didn't answer; cleared by the next refresh that works.
     var error: String?
+    /// A start, stop or restart that failed, or why a session can't be opened; stays until dismissed.
+    var notice: Notice?
     var isLoading = false
     var fetchedAt: Date?
     /// Names of projects whose session is being started or stopped.
@@ -92,62 +95,58 @@ final class Store {
         }
     }
 
-    /// Starts a session and returns it, or nil (with `error` set) if that failed.
+    /// Starts a session and returns it, or nil (with `notice` set) if that failed.
     func start(_ name: String, create: Bool = false) async -> Session? {
         busy.insert(name)
         defer { busy.remove(name) }
         do {
             let s = try await API.start(name: name, create: create)
-            error = nil
             await refresh()
             return s
         } catch {
-            self.error = error.localizedDescription
+            notice = Notice(title: "Couldn't start \(name)", message: error.localizedDescription)
+            await refresh() // the project now shows why
             return nil
         }
     }
 
-    /// Returns the new description, or nil (with `error` set).
+    /// Restarts a session (same conversation); returns it, or nil (with `notice` set).
+    func restart(_ session: Session) async -> Session? {
+        busy.insert(session.name)
+        defer { busy.remove(session.name) }
+        do {
+            let s = try await API.restart(pid: session.pid)
+            await refresh()
+            return s
+        } catch {
+            notice = Notice(title: "Couldn't restart \(session.name)", message: error.localizedDescription)
+            await refresh()
+            return nil
+        }
+    }
+
+    /// Returns the new description.
     @discardableResult
-    func regenerateDescription(_ project: String) async -> String? {
+    func regenerateDescription(_ project: String) async throws -> String {
         describing.insert(project)
         defer { describing.remove(project) }
-        do {
-            let text = try await API.describe(project)
-            error = nil
-            await refresh()
-            return text
-        } catch {
-            self.error = error.localizedDescription
-            return nil
-        }
+        let text = try await API.describe(project)
+        await refresh()
+        return text
     }
 
-    /// Returns the new path, or nil (with `error` set).
-    func rename(_ project: String, to name: String) async -> String? {
+    /// Returns the new path.
+    func rename(_ project: String, to name: String) async throws -> String {
         busy.insert((project as NSString).lastPathComponent)
         defer { busy.remove((project as NSString).lastPathComponent) }
-        do {
-            let path = try await API.rename(project, to: name)
-            error = nil
-            await refresh()
-            return path
-        } catch {
-            self.error = error.localizedDescription
-            return nil
-        }
+        let path = try await API.rename(project, to: name)
+        await refresh()
+        return path
     }
 
-    func saveDescription(_ project: String, _ text: String) async -> Bool {
-        do {
-            _ = try await API.setDescription(project, text)
-            error = nil
-            await refresh()
-            return true
-        } catch {
-            self.error = error.localizedDescription
-            return false
-        }
+    func saveDescription(_ project: String, _ text: String) async throws {
+        _ = try await API.setDescription(project, text)
+        await refresh()
     }
 
     func stop(_ session: Session) async {
@@ -155,10 +154,17 @@ final class Store {
         defer { busy.remove(session.name) }
         do {
             try await API.stop(pid: session.pid)
-            error = nil
         } catch {
-            self.error = error.localizedDescription
+            notice = Notice(title: "Couldn't stop \(session.name)", message: error.localizedDescription)
         }
         await refresh()
     }
+}
+
+/// Shown as an alert; `restart` adds a Restart button for that session.
+struct Notice: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+    var restart: Session?
 }

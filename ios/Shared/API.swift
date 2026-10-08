@@ -6,7 +6,7 @@ struct Session: Codable, Equatable, Identifiable {
     let pid: Int
     let startedAt: Date
     let url: String?
-    let state: String // starting | waiting | ready
+    let state: String // starting | waiting | ready | disconnected
     let waiting: String?
     let managed: Bool
     let server: Bool
@@ -26,6 +26,9 @@ struct Project: Codable, Equatable, Identifiable {
     let modified: Date
     let git: Bool
     let description: String?
+    /// Why its last session ended, if it crashed or didn't start.
+    let lastExit: String?
+    let lastExitAt: Date?
     var id: String { name }
 }
 
@@ -53,6 +56,8 @@ struct Usage: Codable, Equatable {
 
     let limits: [Limit]
     let fetchedAt: Date
+    /// Set when these are the last good limits and the Mac couldn't get new ones.
+    var error: String? = nil
 
     /// The 5-hour session limit, shown as the main gauge.
     var session: Limit? { limits.first { $0.id.contains("session") } ?? limits.first }
@@ -109,6 +114,11 @@ enum API {
     static func start(name: String, create: Bool = false) async throws -> Session {
         let body = try JSONSerialization.data(withJSONObject: ["name": name, "create": create])
         return try await request("POST", "/api/sessions", body: body, timeout: 75)
+    }
+
+    /// Stops a session and starts it again with the same conversation.
+    static func restart(pid: Int) async throws -> Session {
+        try await request("POST", "/api/sessions/\(pid)/restart", timeout: 75)
     }
 
     private struct DescriptionReply: Decodable { let description: String }

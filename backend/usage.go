@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -29,6 +31,7 @@ type Usage struct {
 	Limits    []Limit   `json:"limits"`
 	Insights  []string  `json:"insights"`
 	FetchedAt time.Time `json:"fetched_at"`
+	Error     string    `json:"error,omitempty"` // set when these are the last good limits and the latest fetch failed
 }
 
 var (
@@ -129,16 +132,38 @@ func fetchUsage(force bool) (Usage, error) {
 	cmd := exec.CommandContext(ctx, claudeBin(), "-p", "/usage")
 	cmd.Dir = os.TempDir()
 	cmd.Env = cleanEnv()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	u := parseUsage(string(out), time.Now().Truncate(time.Second))
+	switch {
+	case ctx.Err() != nil:
+		err = fmt.Errorf("claude -p /usage didn't answer in a minute")
+	case err != nil:
+		err = fmt.Errorf("claude -p /usage: %v: %s", err, firstLines(stderr.String()+string(out)))
+	case len(u.Limits) == 0:
+		// E.g. signed out: it exits 0 and says so instead of showing limits.
+		err = fmt.Errorf("claude -p /usage: %s", orDefault(firstLines(string(out)), "no answer"))
+	}
 	if err != nil {
 		if usageCache.last != nil {
-			return *usageCache.last, nil // stale beats nothing
+			stale := *usageCache.last // stale beats nothing, but say so
+			stale.Error = err.Error()
+			return stale, nil
 		}
 		return Usage{}, err
 	}
-	u := parseUsage(string(out), time.Now().Truncate(time.Second))
 	usageCache.last = &u
 	return u, nil
+}
+
+// firstLines is the start of a command's output, for error messages.
+func firstLines(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 200 {
+		s = string(r[:200]) + "…"
+	}
+	return s
 }
 
 func execOutput(name string, args ...string) (string, error) {

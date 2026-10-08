@@ -134,6 +134,8 @@ func sessionLine(s Session, width int) string {
 		return green.Render("●") + " " + bold.Render(name) + " " + up + " " + dim.Render(s.URL)
 	case s.State == "waiting":
 		return amber.Render("●") + " " + bold.Render(name) + " " + up + " " + amber.Render("waiting: "+short(s.Waiting, 60))
+	case s.State == "disconnected":
+		return red.Render("●") + " " + bold.Render(name) + " " + up + " " + red.Render(short(s.Waiting, 60))
 	default:
 		return amber.Render("◌") + " " + bold.Render(name) + " " + up + " " + dim.Render("starting…")
 	}
@@ -156,6 +158,9 @@ func cmdProjects() error {
 			dot = green.Render("● ")
 		}
 		fmt.Printf("%s%-26s %s %s\n", dot, p.Name, dim.Render(fmt.Sprintf("%-9s", ago(p.Modified))), p.Description)
+		if p.LastExit != "" && !running[p.Name] {
+			fmt.Printf("  %-26s %s\n", "", red.Render("✗ exited "+ago(p.LastExitAt)+": "+short(p.LastExit, 80)))
+		}
 	}
 	return nil
 }
@@ -199,15 +204,8 @@ func cmdRestart(name string) error {
 	if err != nil {
 		return err
 	}
-	if s.Dir == "" || strings.HasPrefix(s.Dir, "/") {
-		return fmt.Errorf("%s isn't in a project folder under ~/Dev", s.Name)
-	}
-	if err := stopSession(s.PID); err != nil {
-		return err
-	}
-	time.Sleep(time.Second)
 	fmt.Fprintln(os.Stderr, dim.Render("Restarting "+s.Name+"…"))
-	ns, err := startSession(startRequest{Name: s.Name, Dir: s.Dir, Resume: true})
+	ns, err := restartSession(s.PID)
 	if err != nil {
 		return err
 	}

@@ -70,9 +70,7 @@ struct ContentView: View {
         .tint(Theme.accentSoft)
         .sheet(isPresented: $showSettings) { SettingsView(store: store) }
         .sheet(isPresented: $showNew) {
-            NewProjectView(store: store) { session in
-                if let link = session.link { openURL(link) }
-            }
+            NewProjectView(store: store) { session in open(session) }
         }
         .sheet(item: $editing) { t in
             ProjectEditor(store: store, project: t.project, original: t.description ?? "", running: t.running)
@@ -85,6 +83,17 @@ struct ContentView: View {
             }
         } message: { s in
             Text("Anything it is doing is interrupted.")
+        }
+        .alert(store.notice?.title ?? "", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } }),
+               presenting: store.notice) { n in
+            if let s = n.restart {
+                Button("Restart") { restart(s) }
+                Button("Cancel", role: .cancel) {}
+            } else {
+                Button("OK", role: .cancel) {}
+            }
+        } message: { n in
+            Text(n.message)
         }
         .task(id: scenePhase) {
             // Poll while the app is in the foreground.
@@ -145,9 +154,29 @@ struct ContentView: View {
 
     private func start(_ name: String, open: Bool) {
         Task {
-            if let s = await store.start(name), open, let link = s.link {
-                openURL(link)
-            }
+            if let s = await store.start(name), open { self.open(s) }
+        }
+    }
+
+    private func restart(_ session: Session) {
+        Task {
+            if let s = await store.restart(session) { open(s) }
+        }
+    }
+
+    /// Opens a session in Claude, or says why it can't be.
+    private func open(_ s: Session) {
+        switch (s.state, s.link) {
+        case ("disconnected", _):
+            store.notice = Notice(title: "\(s.name) lost Remote Control", message: s.waiting ?? "", restart: s)
+        case ("ready", let link?):
+            openURL(link)
+        case ("waiting", _):
+            store.notice = Notice(title: "\(s.name) is waiting on the Mac",
+                                  message: (s.waiting ?? "") + "\n\nRestart it, or answer on the Mac.", restart: s)
+        default:
+            store.notice = Notice(title: "\(s.name) is still starting",
+                                  message: "It opens once Claude Code registers with Remote Control.")
         }
     }
 
@@ -155,7 +184,7 @@ struct ContentView: View {
 
     private func sessionRow(_ s: Session) -> some View {
         Button {
-            if let link = s.link { openURL(link) }
+            open(s)
         } label: {
             HStack(spacing: 12) {
                 StatusDot(state: store.busy.contains(s.name) ? "starting" : s.state)
@@ -172,10 +201,10 @@ struct ContentView: View {
                     }
                     .font(.footnote)
                     .foregroundStyle(Theme.secondary)
-                    if s.state == "waiting", let w = s.waiting {
+                    if s.state == "waiting" || s.state == "disconnected", let w = s.waiting {
                         Text(w)
                             .font(.caption2.monospaced())
-                            .foregroundStyle(Theme.amber)
+                            .foregroundStyle(s.state == "disconnected" ? Theme.red : Theme.amber)
                             .lineLimit(4)
                     }
                 }
@@ -209,7 +238,8 @@ struct ContentView: View {
                 Button { openURL(link) } label: { Label("Open in Claude", systemImage: "arrow.up.forward.app") }
                 Button { UIPasteboard.general.url = link } label: { Label("Copy link", systemImage: "link") }
             }
-            if !s.dir.isEmpty && !s.dir.hasPrefix("/") {
+            if !s.dir.isEmpty && !s.dir.hasPrefix("/") && !s.server {
+                Button { restart(s) } label: { Label("Restart", systemImage: "arrow.clockwise") }
                 descriptionMenu(project: s.dir, description: s.description, running: true)
             }
             Button(role: .destructive) { toStop = s } label: {
@@ -240,6 +270,12 @@ struct ContentView: View {
                                 .padding(.vertical, 1)
                                 .background(Theme.accentSoft.opacity(0.15), in: Capsule())
                         }
+                    }
+                    if let exit = p.lastExit {
+                        Text("Exited \((p.lastExitAt ?? .now).formatted(.relative(presentation: .named))): \(exit)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(Theme.red)
+                            .lineLimit(3)
                     }
                 }
                 Spacer()
@@ -278,7 +314,14 @@ struct ContentView: View {
         Button { editing = EditTarget(project: project, description: description, running: running) } label: {
             Label("Edit…", systemImage: "pencil")
         }
-        Button { Task { await store.regenerateDescription(project) } } label: {
+        Button {
+            Task {
+                do { try await store.regenerateDescription(project) } catch {
+                    store.notice = Notice(title: "Couldn't describe \((project as NSString).lastPathComponent)",
+                                          message: error.localizedDescription)
+                }
+            }
+        } label: {
             Label("Regenerate with Claude", systemImage: "sparkles")
         }
         .disabled(store.describing.contains(project))
@@ -338,7 +381,11 @@ struct StatusDot: View {
     let state: String
 
     var body: some View {
-        let color = state == "ready" ? Theme.green : Theme.amber
+        let color = switch state {
+        case "ready": Theme.green
+        case "disconnected": Theme.red
+        default: Theme.amber
+        }
         Circle()
             .fill(color)
             .frame(width: 10, height: 10)

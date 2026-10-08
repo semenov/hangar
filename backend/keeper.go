@@ -35,9 +35,10 @@ type keeperState struct {
 	ClaudePID int       `json:"claude_pid"`
 	StartedAt time.Time `json:"started_at"`
 	URL       string    `json:"url,omitempty"`
-	State     string    `json:"state"`
+	State     string    `json:"state"` // starting | waiting | ready | disconnected | exited
 	Waiting   string    `json:"waiting,omitempty"`
 	Answered  []string  `json:"answered,omitempty"`
+	ExitedAt  time.Time `json:"exited_at,omitzero"`
 }
 
 // A dialog Claude Code shows before it registers with Remote Control.
@@ -57,6 +58,12 @@ var dialogs = []dialog{
 }
 
 // dialogAllowed: what the user agreed to in `hangar setup`.
+// What a session prints when it loses Remote Control after registering, e.g.
+// "⏺ Remote Control disconnected — Claude.ai login expired — run /login to restore Remote Control".
+// It reconnects by itself after network trouble; this one needs a new login. The ⏺ at the start
+// tells it from the conversation quoting it.
+var disconnectedRe = regexp.MustCompile(`⏺ ?Remote Control disconnected ?— ?([^—]{1,80}?) ?— ?run /login`)
+
 func dialogAllowed(d dialog) bool {
 	if d.name == "remote-control consent" {
 		return conf().AcceptRemoteControl
@@ -172,8 +179,9 @@ func keep(name, dir string, resume bool) error {
 	var mu sync.Mutex
 	writeState(st)
 	defer func() {
-		// Only remove our own state: a newer keeper for the same name may have replaced it.
-		if cur, ok := readState(name); ok && cur.KeeperPID == os.Getpid() {
+		// Only remove our own state: a newer keeper for the same name may have replaced it. An
+		// "exited" state stays, so the app can show why the session ended.
+		if cur, ok := readState(name); ok && cur.KeeperPID == os.Getpid() && cur.State != "exited" {
 			os.Remove(statePath(name))
 		}
 	}()
@@ -194,7 +202,19 @@ func keep(name, dir string, resume bool) error {
 		}
 	}()
 
-	var screen tail
+	var screen tail // guarded by mu
+	// A session that prints nothing at all is stuck too; the read loop below wouldn't notice.
+	go func() {
+		for range time.Tick(5 * time.Second) {
+			mu.Lock()
+			if st.State == "starting" && time.Since(st.StartedAt) > 30*time.Second {
+				st.State, st.Waiting = "waiting", orDefault(screen.readable(400), "no output from claude")
+				writeState(st)
+			}
+			mu.Unlock()
+		}
+	}()
+
 	var written int64
 	lastAnswer := time.Time{}
 	buf := make([]byte, 32<<10)
@@ -209,13 +229,22 @@ func keep(name, dir string, resume bool) error {
 			}
 			logf.Write(chunk)
 			written += int64(n)
-			screen.add(chunk)
 
 			mu.Lock()
+			screen.add(chunk)
 			changed := false
 			if u := firstSessionURL(screen.text); u != "" && st.URL == "" {
 				st.URL, st.State, st.Waiting = u, "ready", ""
+				screen.reset() // what follows is the session; the startup screen is done with
 				changed = true
+			}
+			if st.URL != "" && st.State != "disconnected" {
+				if m := disconnectedRe.FindStringSubmatch(screen.readable(4000)); m != nil {
+					log.Printf("%s: Remote Control disconnected: %s", name, m[1])
+					st.State = "disconnected"
+					st.Waiting = "Remote Control disconnected: " + m[1] + ". Run `claude` and /login on the Mac, then restart the session."
+					changed = true
+				}
 			}
 			if st.URL == "" && time.Since(lastAnswer) > 2*time.Second {
 				c := strings.ToLower(screen.compact())
@@ -255,11 +284,22 @@ func keep(name, dir string, resume bool) error {
 	}
 	err = cmd.Wait()
 	log.Printf("%s: exited: %v", name, err)
-	// Exited on its own (/exit), not because the Mac is shutting down: don't bring it back.
 	// The grace period covers shutdown, where claude may get its SIGTERM a moment before we do.
 	time.Sleep(3 * time.Second)
-	if !signaled.Load() {
-		removeDesired(name)
+	_, wanted := loadDesired()[name] // stopSession removes it before stopping claude
+	switch {
+	case signaled.Load():
+		// The Mac is shutting down: it stays in desired.json and comes back at login.
+	case err == nil:
+		removeDesired(name) // /exit: don't bring it back
+	case wanted:
+		// Crashed or refused to start. It stays in desired.json (a reboot tries again), and the
+		// state file stays with the last screen, for the app.
+		mu.Lock()
+		st.State, st.ExitedAt = "exited", time.Now().Truncate(time.Second)
+		st.Waiting = orDefault(screen.readable(300), err.Error())
+		writeState(st)
+		mu.Unlock()
 	}
 	return nil
 }
