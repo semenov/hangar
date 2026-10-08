@@ -95,12 +95,10 @@ struct ContentView: View {
             }
         }
         .task(id: scenePhase) {
-            // Limits change slowly and are expensive to fetch (claude-monitor caches them for 60 s).
+            // Limits: once when the app comes to the foreground, and on pull-to-refresh. Each fetch
+            // runs `claude -p /usage` on the Mac, so no timer.
             guard scenePhase == .active else { return }
-            while !Task.isCancelled {
-                await store.refreshUsage()
-                try? await Task.sleep(for: .seconds(60))
-            }
+            await store.refreshUsage()
         }
     }
 

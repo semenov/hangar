@@ -237,6 +237,13 @@ func (rl *relay) servePhone(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func page(html string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(html))
+	}
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -249,9 +256,8 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]int64{"macs": rl.macCount.Load(), "phones": rl.phoneCount.Load()})
 	})
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("hangar relay: https://github.com/semenov/hangar\n"))
-	})
+	mux.HandleFunc("GET /{$}", page(landingHTML))
+	mux.HandleFunc("GET /privacy", page(privacyHTML))
 	log.Printf("hangar-relay on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
