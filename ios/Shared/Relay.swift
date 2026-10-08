@@ -45,6 +45,11 @@ actor RelayConnection {
     private var recvN: UInt64 = 0
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<(Int, Data), Error>] = [:]
+    /// Agreed in the handshake: messages carry a flag byte and the Mac may compress them.
+    private var deflate = false
+    /// Last response per GET path, so the Mac can answer 304 instead of resending it.
+    private var etags: [String: (etag: String, body: Data)] = [:]
+    private var pendingPath: [Int: String] = [:]
     private var connecting: Task<Void, Error>?
 
     private init(mac: PairedMac) { self.mac = mac }
@@ -57,6 +62,10 @@ actor RelayConnection {
         nextID += 1
         var msg: [String: Any] = ["id": id, "method": method, "path": path]
         if let body, let json = try? JSONSerialization.jsonObject(with: body) { msg["body"] = json }
+        if method == "GET" {
+            pendingPath[id] = path
+            if let cached = etags[path] { msg["if_none_match"] = cached.etag }
+        }
         let frame = try seal(JSONSerialization.data(withJSONObject: msg))
         let t = task
         Task { [weak self] in
@@ -72,6 +81,7 @@ actor RelayConnection {
     }
 
     private func fail(_ id: Int, _ error: Error) {
+        pendingPath.removeValue(forKey: id)
         pending.removeValue(forKey: id)?.resume(throwing: error)
     }
 
@@ -97,9 +107,10 @@ actor RelayConnection {
               let phone = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) else {
             throw RelayError.notPaired
         }
-        let (task, keys) = try await Self.handshake(relay: relay, macID: mac.id, macKey: macKey, phone: phone,
-                                                    pairing: nil)
+        let (task, keys, deflate) = try await Self.handshake(relay: relay, macID: mac.id, macKey: macKey, phone: phone,
+                                                             pairing: nil)
         self.task = task
+        self.deflate = deflate
         (sendKey, recvKey) = keys
         sendN = 0
         recvN = 0
@@ -133,8 +144,15 @@ actor RelayConnection {
             }
             return
         }
-        let status = obj["status"] as? Int ?? 500
-        let body = (obj["body"]).flatMap { try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) } ?? Data()
+        var status = obj["status"] as? Int ?? 500
+        var body = (obj["body"]).flatMap { try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) } ?? Data()
+        if let path = pendingPath.removeValue(forKey: id) {
+            if status == 304, let cached = etags[path] {
+                (status, body) = (200, cached.body) // unchanged: the Mac sent no body
+            } else if status == 200, let etag = obj["etag"] as? String {
+                etags[path] = (etag, body)
+            }
+        }
         pending.removeValue(forKey: id)?.resume(returning: (status, body))
     }
 
@@ -145,13 +163,15 @@ actor RelayConnection {
         recvKey = nil
         let waiting = pending
         pending = [:]
+        pendingPath = [:]
         for (_, c) in waiting { c.resume(throwing: error) }
     }
 
     // MARK: Encryption
 
-    private func seal(_ plain: Data) throws -> Data {
+    private func seal(_ message: Data) throws -> Data {
         guard let sendKey else { throw RelayError.protocolError("not connected") }
+        let plain = deflate ? Data([0]) + message : message // requests are small: sent as is
         var nonce = Data(count: 4)
         withUnsafeBytes(of: sendN.bigEndian) { nonce.append(contentsOf: $0) }
         sendN += 1
@@ -164,7 +184,15 @@ actor RelayConnection {
         guard n >= recvN else { throw RelayError.protocolError("replayed frame") }
         let plain = try ChaChaPoly.open(ChaChaPoly.SealedBox(combined: frame), using: recvKey)
         recvN = n + 1
-        return plain
+        guard deflate else { return plain }
+        // Flag byte: 0 = as is, 1 = raw DEFLATE (what the Compression framework calls zlib).
+        guard let flag = plain.first else { throw RelayError.protocolError("empty message") }
+        let rest = plain.dropFirst()
+        switch flag {
+        case 0: return Data(rest)
+        case 1: return try (Data(rest) as NSData).decompressed(using: .zlib) as Data
+        default: throw RelayError.protocolError("unknown message encoding")
+        }
     }
 
     struct Pairing: Sendable {
@@ -173,9 +201,9 @@ actor RelayConnection {
     }
 
     /// Opens a WebSocket to the relay and runs the handshake; with `pairing`, it pairs first.
-    /// Returns the socket and the (send, receive) keys.
+    /// Returns the socket, the (send, receive) keys and whether messages may be compressed.
     static func handshake(relay: String, macID: String, macKey: Data, phone: Curve25519.KeyAgreement.PrivateKey,
-                          pairing: Pairing?) async throws -> (URLSessionWebSocketTask, (SymmetricKey, SymmetricKey)) {
+                          pairing: Pairing?) async throws -> (URLSessionWebSocketTask, (SymmetricKey, SymmetricKey), Bool) {
         guard let url = URL(string: relay.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/v1/phone?id=" + macID) else {
             throw RelayError.protocolError("bad relay address")
         }
@@ -185,7 +213,8 @@ actor RelayConnection {
 
         let eph = Curve25519.KeyAgreement.PrivateKey()
         let phoneKey = phone.publicKey.rawRepresentation, ephKey = eph.publicKey.rawRepresentation
-        var hello: [String: Any] = ["t": "hello", "key": phoneKey.base64EncodedString(), "eph": ephKey.base64EncodedString()]
+        var hello: [String: Any] = ["t": "hello", "key": phoneKey.base64EncodedString(), "eph": ephKey.base64EncodedString(),
+                                    "compress": ["deflate"]]
         if let pairing {
             var mac = HMAC<SHA256>(key: SymmetricKey(data: pairing.secret))
             mac.update(data: Data("hangar-pair-v1".utf8))
@@ -226,7 +255,7 @@ actor RelayConnection {
                 HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: ikm), salt: salt,
                                        info: Data(info.utf8), outputByteCount: 32)
             }
-            return (task, (key("phone→mac"), key("mac→phone")))
+            return (task, (key("phone→mac"), key("mac→phone")), obj["compress"] as? String == "deflate")
         } catch {
             let code = task.closeCode.rawValue
             task.cancel(with: .normalClosure, reason: nil)
@@ -238,8 +267,8 @@ actor RelayConnection {
     /// Pairs with the Mac from a `hangar pair` link and saves it.
     static func pair(_ link: PairLink, phoneName: String) async throws -> PairedMac {
         let phone = Curve25519.KeyAgreement.PrivateKey()
-        let (task, _) = try await handshake(relay: link.relay, macID: link.macID, macKey: link.macKey, phone: phone,
-                                            pairing: Pairing(secret: link.secret, name: phoneName))
+        let (task, _, _) = try await handshake(relay: link.relay, macID: link.macID, macKey: link.macKey, phone: phone,
+                                               pairing: Pairing(secret: link.secret, name: phoneName))
         task.cancel(with: .normalClosure, reason: nil)
         let mac = PairedMac(id: link.macID, name: link.name, kind: .relay, relay: link.relay, macKey: link.macKey)
         Keychain.set(phone.rawRepresentation, for: mac.keyAccount)

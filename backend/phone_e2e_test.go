@@ -59,6 +59,23 @@ func TestPhoneE2E(t *testing.T) {
 	t.Logf("overview: %d sessions", len(resp.Body.Sessions))
 	conn.Close(websocket.StatusNormalClosure, "")
 
+	// Compressed channel: overview comes deflated, and a repeat with its ETag answers 304.
+	conn, recv, send = phoneConnectOpts(t, q.Get("relay"), q.Get("mac"), macKey, phone, nil, true)
+	send(map[string]any{"id": 10, "method": "GET", "path": "/api/overview"})
+	var full struct {
+		Status int
+		ETag   string
+	}
+	json.Unmarshal([]byte(recv()), &full)
+	send(map[string]any{"id": 11, "method": "GET", "path": "/api/overview", "if_none_match": full.ETag})
+	var again struct{ Status int }
+	json.Unmarshal([]byte(recv()), &again)
+	if full.Status != 200 || full.ETag == "" || again.Status != 304 {
+		t.Fatalf("etag: first %d %q, then %d", full.Status, full.ETag, again.Status)
+	}
+	t.Logf("deflate + etag: 200 then 304")
+	conn.Close(websocket.StatusNormalClosure, "")
+
 	// Reconnect as a paired phone.
 	conn, recv, send = phoneConnect(t, q.Get("relay"), q.Get("mac"), macKey, phone, nil)
 	send(map[string]any{"id": 3, "method": "GET", "path": "/api/version"})
@@ -84,6 +101,10 @@ func TestPhoneE2E(t *testing.T) {
 }
 
 func phoneConnect(t *testing.T, relay, macID string, macKey []byte, phone *ecdh.PrivateKey, secret []byte) (*websocket.Conn, func() string, func(any)) {
+	return phoneConnectOpts(t, relay, macID, macKey, phone, secret, false)
+}
+
+func phoneConnectOpts(t *testing.T, relay, macID string, macKey []byte, phone *ecdh.PrivateKey, secret []byte, deflate bool) (*websocket.Conn, func() string, func(any)) {
 	ctx := context.Background()
 	c, _, err := websocket.Dial(ctx, relay+"/v1/phone?id="+macID, nil)
 	if err != nil {
@@ -91,6 +112,9 @@ func phoneConnect(t *testing.T, relay, macID string, macKey []byte, phone *ecdh.
 	}
 	eph, _ := ecdh.X25519().GenerateKey(rand.Reader)
 	msg := map[string]any{"t": "hello", "key": phone.PublicKey().Bytes(), "eph": eph.PublicKey().Bytes()}
+	if deflate {
+		msg["compress"] = []string{"deflate"}
+	}
 	if secret != nil {
 		m := hmac.New(sha256.New, secret)
 		m.Write([]byte("hangar-pair-v1"))
@@ -139,6 +163,9 @@ func phoneConnect(t *testing.T, relay, macID string, macKey []byte, phone *ecdh.
 	var last []byte
 	send := func(v any) {
 		plain, _ := json.Marshal(v)
+		if deflate {
+			plain = append([]byte{0}, plain...)
+		}
 		nonce := make([]byte, 12)
 		binary.BigEndian.PutUint64(nonce[4:], n)
 		n++
@@ -155,6 +182,11 @@ func phoneConnect(t *testing.T, relay, macID string, macKey []byte, phone *ecdh.
 		plain, err := recvAEAD.Open(nil, frame[:12], frame[12:], nil)
 		if err != nil {
 			t.Fatalf("decrypt: %v (%s)", err, frame)
+		}
+		if deflate {
+			if plain, err = unpackMessage(plain); err != nil {
+				t.Fatal(err)
+			}
 		}
 		return string(plain)
 	}

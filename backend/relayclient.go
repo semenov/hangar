@@ -2,12 +2,17 @@ package main
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -49,12 +54,15 @@ type rpcRequest struct {
 	Method string          `json:"method"`
 	Path   string          `json:"path"`
 	Body   json.RawMessage `json:"body,omitempty"`
+	// The ETag of the response the phone already has: an unchanged GET answers 304 with no body.
+	IfNoneMatch string `json:"if_none_match,omitempty"`
 }
 
 type rpcResponse struct {
 	ID     int             `json:"id"`
 	Status int             `json:"status"`
 	Body   json.RawMessage `json:"body"`
+	ETag   string          `json:"etag,omitempty"`
 }
 
 var relayStatus struct {
@@ -193,6 +201,17 @@ type phoneChannel struct {
 	mu       sync.Mutex // serializes sealing (the nonce counter)
 	sc       *secureChannel
 	phoneKey []byte
+	deflate  bool // agreed in the handshake: messages carry a flag byte and may be compressed
+}
+
+// send seals and writes a message under the channel's lock, so counters reach the phone in order.
+func (m *macMux) send(ch uint32, pc *phoneChannel, plain []byte) {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	if pc.deflate {
+		plain = packMessage(plain)
+	}
+	m.write(ch, frameData, pc.sc.seal(plain))
 }
 
 func (m *macMux) write(ch uint32, kind byte, payload []byte) error {
@@ -241,6 +260,9 @@ func (m *macMux) handle(ch uint32, kind byte, payload []byte) {
 		}
 		pc.mu.Lock()
 		plain, err := pc.sc.open(payload)
+		if err == nil && pc.deflate {
+			plain, err = unpackMessage(plain)
+		}
 		pc.mu.Unlock()
 		if err != nil {
 			m.closeChan(ch, "bad frame")
@@ -251,11 +273,12 @@ func (m *macMux) handle(ch uint32, kind byte, payload []byte) {
 }
 
 type handshakeMsg struct {
-	T     string `json:"t"`
-	Key   []byte `json:"key"`
-	Eph   []byte `json:"eph"`
-	Name  string `json:"name,omitempty"`
-	Proof []byte `json:"proof,omitempty"`
+	T        string   `json:"t"`
+	Compress []string `json:"compress,omitempty"` // what the phone can decompress, e.g. ["deflate"]
+	Key      []byte   `json:"key"`
+	Eph      []byte   `json:"eph"`
+	Name     string   `json:"name,omitempty"`
+	Proof    []byte   `json:"proof,omitempty"`
 }
 
 func (m *macMux) handshake(ch uint32, pc *phoneChannel, payload []byte) {
@@ -299,7 +322,14 @@ func (m *macMux) handshake(ch uint32, pc *phoneChannel, payload []byte) {
 		m.closeChan(ch, "bad keys")
 		return
 	}
-	welcome, _ := json.Marshal(map[string]any{"t": "welcome", "eph": eph.PublicKey().Bytes(), "name": conf().MacName})
+	w := map[string]any{"t": "welcome", "eph": eph.PublicKey().Bytes(), "name": conf().MacName}
+	for _, c := range h.Compress {
+		if c == "deflate" {
+			pc.deflate = true
+			w["compress"] = "deflate"
+		}
+	}
+	welcome, _ := json.Marshal(w)
 	pc.sc, pc.phoneKey = sc, h.Key
 	m.write(ch, frameData, welcome)
 	touchDevice(h.Key)
@@ -320,9 +350,7 @@ func (m *macMux) serveRequest(ch uint32, pc *phoneChannel, plain []byte) {
 		revokeDevice(d.ID)
 		log.Printf("relay: %s unpaired itself", d.Name)
 		resp, _ := json.Marshal(rpcResponse{ID: req.ID, Status: 200, Body: json.RawMessage(`{"ok":true}`)})
-		pc.mu.Lock()
-		m.write(ch, frameData, pc.sc.seal(resp))
-		pc.mu.Unlock()
+		m.send(ch, pc, resp)
 		m.closeChan(ch, "")
 		return
 	}
@@ -343,9 +371,45 @@ func (m *macMux) serveRequest(ch uint32, pc *phoneChannel, plain []byte) {
 	if !json.Valid(respBody) {
 		respBody, _ = json.Marshal(string(respBody))
 	}
-	resp, _ := json.Marshal(rpcResponse{ID: req.ID, Status: w.Code, Body: respBody})
-	// Seal and send under one lock: counters must reach the phone in order.
-	pc.mu.Lock()
-	defer pc.mu.Unlock()
-	m.write(ch, frameData, pc.sc.seal(resp))
+	out := rpcResponse{ID: req.ID, Status: w.Code, Body: respBody}
+	if req.Method == http.MethodGet && w.Code == http.StatusOK {
+		sum := sha256.Sum256(respBody)
+		out.ETag = hex.EncodeToString(sum[:12])
+		if req.IfNoneMatch == out.ETag {
+			out.Status, out.Body = http.StatusNotModified, json.RawMessage("null")
+		}
+	}
+	resp, _ := json.Marshal(out)
+	m.send(ch, pc, resp)
+}
+
+// Messages on a channel that agreed to "deflate" start with a flag byte: 0 = as is, 1 = raw DEFLATE
+// (RFC 1951, what Apple's Compression framework calls zlib). Small messages aren't worth it.
+const compressAbove = 512
+
+func packMessage(plain []byte) []byte {
+	if len(plain) > compressAbove {
+		var b bytes.Buffer
+		b.WriteByte(1)
+		fw, _ := flate.NewWriter(&b, flate.BestSpeed)
+		fw.Write(plain)
+		fw.Close()
+		if b.Len() < len(plain) {
+			return b.Bytes()
+		}
+	}
+	return append([]byte{0}, plain...)
+}
+
+func unpackMessage(msg []byte) ([]byte, error) {
+	if len(msg) == 0 {
+		return nil, errors.New("empty message")
+	}
+	switch msg[0] {
+	case 0:
+		return msg[1:], nil
+	case 1:
+		return io.ReadAll(io.LimitReader(flate.NewReader(bytes.NewReader(msg[1:])), 32<<20))
+	}
+	return nil, errors.New("unknown message encoding")
 }

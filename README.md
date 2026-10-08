@@ -42,7 +42,7 @@ iPhone ──wss──▶ hangar.semenov.ai (relay) ◀──wss── Mac (hang
 ```
 
 The Mac keeps one outgoing WebSocket to the relay, so it opens no ports; each phone gets a channel
-on it. The relay only forwards frames (`relay/`, deployed with homebase):
+on it. The relay only forwards frames (`relay/`, on its own droplet):
 
 - The Mac proves its ID to the relay by signing a challenge with Ed25519 (the ID is the start of
   SHA-256 of its public key), so nobody else can take it.
@@ -54,8 +54,15 @@ on it. The relay only forwards frames (`relay/`, deployed with homebase):
   `hangar://pair?relay&mac&key&secret&name`. The phone proves it saw the code with
   HMAC(secret, its keys); the Mac then remembers the phone's public key. Removing the Mac in the
   app tells the Mac to forget the phone (`/api/unpair`).
-- API calls are tunnelled as `{id, method, path, body}` → `{id, status, body}` and served by the
-  same handlers as the HTTP API.
+- API calls are tunnelled as `{id, method, path, body}` → `{id, status, body, etag}`. A GET that
+  sends the ETag it already has (`if_none_match`) gets `304` and no body; the app refreshes every few
+  seconds, so this is most of the traffic saved. If both sides offer `"compress": ["deflate"]` in the
+  handshake, messages start with a flag byte (0 as is, 1 raw DEFLATE) and big ones are compressed
+  before encryption.
+- The relay runs on nbio (an event loop, not a goroutine per connection) and terminates TLS itself
+  (autocert, Let's Encrypt), with no proxy in front: about 17 KB per connection, so a $6 droplet
+  (1 GB) holds tens of thousands of connected Macs. Measured: 3000 Macs + 3000 phones over TLS,
+  ~100 MB, load 0.2.
 
 This is the only way in: `hangar serve` has no HTTP listener and no tokens, and the app has no
 built-in server address.
@@ -115,8 +122,10 @@ hangar serve            the background service the app talks to
   (renaming over the old binary, so running keepers keep theirs). End-to-end test against a running
   relay and `hangar serve`: `HANGAR_E2E_LINK="$(hangar pair --no-wait | grep -o 'hangar://[^ ]*')"
   go test -run TestPhoneE2E -v`.
-- `relay/`: the relay, `homebase deploy` from that folder (https://hangar.semenov.ai, which also
-  serves the landing page and `/privacy`).
+- `relay/`: the relay, also serving the landing page, `/privacy` and `/pair`. It runs on the
+  droplet `hangar-relay` (ams3, systemd unit `hangar-relay`, `TLS_DOMAINS` in the unit);
+  `relay/deploy.sh` builds and installs it. Without `TLS_DOMAINS` it serves plain HTTP on `$PORT`
+  behind a proxy, which is how it ran on thor with homebase.
 - `ios/`: the SwiftUI app and widget (XcodeGen). `swift tools/Icon.swift <out.png>` renders the
   icon.
 
