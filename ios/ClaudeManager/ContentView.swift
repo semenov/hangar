@@ -161,6 +161,12 @@ struct ContentView: View {
         .swipeActions {
             Button("Stop", role: .destructive) { toStop = s }
                 .tint(Theme.red)
+            if !s.dir.isEmpty && !s.dir.hasPrefix("/") {
+                Button { editing = EditTarget(project: s.dir, description: s.description) } label: {
+                    Label("Description", systemImage: "pencil")
+                }
+                .tint(Theme.accentSoft)
+            }
         }
         .contextMenu {
             if let link = s.link {
