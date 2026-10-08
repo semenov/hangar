@@ -64,10 +64,9 @@ private extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }
 
-/// Talks to `hangar serve` on the selected Mac: through the relay (paired Macs), over HTTP (direct),
-/// or to the built-in demo.
+/// Talks to `hangar serve` on the selected Mac through the relay, or to the built-in demo.
 /// No App Group yet (it needs an explicit provisioning profile), so the widget doesn't see the
-/// app's Macs: it uses the direct server from Secrets.swift, if any, and keeps its own cache.
+/// app's Macs and has nothing to show.
 enum API {
     static var defaults: UserDefaults { .standard }
     private static var cacheSuffix: String { Macs.current.map { "." + $0.id } ?? "" }
@@ -154,37 +153,12 @@ enum API {
             (status, data) = await Demo.shared.handle(method, path, body: body)
         case .relay:
             (status, data) = try await RelayConnection.shared(for: mac).request(method, path, body: body, timeout: timeout)
-        case .direct:
-            (status, data) = try await direct(mac, method, path, body: body, timeout: timeout)
         }
         if status != 200 {
             let msg = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
             throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: msg ?? "HTTP \(status)"])
         }
         return (try decoder.decode(T.self, from: data), data)
-    }
-
-    /// Plain HTTP to a server you expose yourself (homebase's private share, Tailscale).
-    private static func direct(_ mac: PairedMac, _ method: String, _ path: String, body: Data?,
-                               timeout: TimeInterval) async throws -> (Int, Data) {
-        let base = (mac.url ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard let url = URL(string: base + path) else { throw URLError(.badURL) }
-        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
-        req.httpMethod = method
-        req.httpBody = body
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        if body != nil {
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-        if let t = mac.homebaseToken, !t.isEmpty {
-            req.setValue(t, forHTTPHeaderField: "X-Homebase-Token")
-        }
-        if let t = mac.managerToken, !t.isEmpty {
-            req.setValue(t, forHTTPHeaderField: "X-Manager-Token")
-        }
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        return ((resp as? HTTPURLResponse)?.statusCode ?? 0, data)
     }
 
     /// Tells the Mac to forget this phone (relay Macs), then forgets the Mac here.

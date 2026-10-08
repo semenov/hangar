@@ -57,10 +57,8 @@ on it. The relay only forwards frames (`relay/`, deployed with homebase):
 - API calls are tunnelled as `{id, method, path, body}` → `{id, status, body}` and served by the
   same handlers as the HTTP API.
 
-For setups that expose the Mac themselves (Tailscale, homebase's private share), `hangar serve`
-with `$PORT` also listens on 127.0.0.1 with a token (`~/Library/Application
-Support/claude-manager/token`, header `X-Manager-Token`); the app's Settings → Connect directly
-takes the URL and token.
+This is the only way in: `hangar serve` has no HTTP listener and no tokens, and the app has no
+built-in server address.
 
 ## hangar (command line)
 
@@ -124,8 +122,7 @@ hangar serve            the background service the app talks to
 
   ```sh
   cd ios
-  cp Local.xcconfig.example Local.xcconfig               # your Team ID
-  cp Shared/Secrets.swift.example Shared/Secrets.swift   # empty for the public app
+  cp Local.xcconfig.example Local.xcconfig   # your Team ID
   xcodegen generate
   xcodebuild -scheme ClaudeManager -configuration Release -destination 'id=<device-udid>' \
     -derivedDataPath build/device -allowProvisioningUpdates build
@@ -134,7 +131,7 @@ hangar serve            the background service the app talks to
 
   Debug builds pair from a launch argument (`simctl launch … -pairLink 'hangar://pair?…'`), since
   opening the URL asks for confirmation. There is no App Group yet (it needs an explicit
-  provisioning profile), so the widget only works with a direct server from `Secrets.swift`.
+  provisioning profile), so the widget can't see the app's paired Macs and shows no data.
 - Homebrew formula: `Formula/hangar.rb` in [semenov/homebrew-tap](https://github.com/semenov/homebrew-tap),
   built from the release tarball.
 

@@ -1,3 +1,0 @@
-name = "claude-manager"
-# Build next to the old binary and rename over it: running keepers keep their (old) inode.
-start = "cd backend && go build -o .bin/claude-manager.new . && mv -f .bin/claude-manager.new .bin/claude-manager && exec .bin/claude-manager serve"

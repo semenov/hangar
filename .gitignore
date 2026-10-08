@@ -1,5 +1,4 @@
 ios/build/
 ios/*.xcodeproj/
-ios/Shared/Secrets.swift
 ios/Local.xcconfig
 backend/.bin/

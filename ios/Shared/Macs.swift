@@ -1,9 +1,8 @@
 import Foundation
 
-/// A Mac the app talks to: paired through the relay, reached directly over HTTP (advanced: your
-/// own proxy or Tailscale), or the built-in demo.
+/// A Mac the app talks to: paired through the relay, or the built-in demo.
 struct PairedMac: Codable, Identifiable, Equatable, Sendable {
-    enum Kind: String, Codable, Sendable { case relay, direct, demo }
+    enum Kind: String, Codable, Sendable { case relay, demo }
 
     var id: String // the Mac's ID for relay Macs
     var name: String
@@ -11,10 +10,6 @@ struct PairedMac: Codable, Identifiable, Equatable, Sendable {
     // relay
     var relay: String?
     var macKey: Data? // the Mac's X25519 public key
-    // direct
-    var url: String?
-    var homebaseToken: String?
-    var managerToken: String?
 
     static let demo = PairedMac(id: "demo", name: "Demo Mac", kind: .demo)
 
@@ -24,12 +19,14 @@ struct PairedMac: Codable, Identifiable, Equatable, Sendable {
 
 enum Macs {
     static var defaults: UserDefaults { .standard }
-    private static let listKey = "macs", currentKey = "currentMac", migratedKey = "macsMigrated"
+    private static let listKey = "macs", currentKey = "currentMac"
 
     static var all: [PairedMac] {
         get {
-            migrateIfNeeded()
-            return defaults.data(forKey: listKey).flatMap { try? JSONDecoder().decode([PairedMac].self, from: $0) } ?? []
+            forgetOldSettings()
+            // Entry by entry, so an entry from an older build (a "direct" server) is just skipped.
+            let items = defaults.data(forKey: listKey).flatMap { try? JSONDecoder().decode([Lossy].self, from: $0) } ?? []
+            return items.compactMap(\.mac)
         }
         set { defaults.set(try? JSONEncoder().encode(newValue), forKey: listKey) }
     }
@@ -55,17 +52,16 @@ enum Macs {
         if defaults.string(forKey: currentKey) == id { defaults.removeObject(forKey: currentKey) }
     }
 
-    /// Builds from before pairing existed used one direct server from Secrets.swift and Settings.
-    private static func migrateIfNeeded() {
-        guard !defaults.bool(forKey: migratedKey) else { return }
-        defaults.set(true, forKey: migratedKey)
-        let url = defaults.string(forKey: "publicURL") ?? Secrets.publicServer
-        guard !url.isEmpty, defaults.data(forKey: listKey) == nil else { return }
-        let mac = PairedMac(id: "direct-" + UUID().uuidString, name: "My Mac", kind: .direct,
-                            url: url,
-                            homebaseToken: defaults.string(forKey: "token") ?? Secrets.homebaseToken,
-                            managerToken: defaults.string(forKey: "managerToken") ?? Secrets.managerToken)
-        defaults.set(try? JSONEncoder().encode([mac]), forKey: listKey)
+    /// Builds before pairing kept a server address and tokens; nothing reads them any more.
+    private static func forgetOldSettings() {
+        for k in ["publicURL", "token", "managerToken", "macsMigrated"] where defaults.object(forKey: k) != nil {
+            defaults.removeObject(forKey: k)
+        }
+    }
+
+    private struct Lossy: Decodable {
+        let mac: PairedMac?
+        init(from decoder: Decoder) throws { mac = try? PairedMac(from: decoder) }
     }
 }
 

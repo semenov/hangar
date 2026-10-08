@@ -31,12 +31,6 @@ final class Store {
         reloadMacs()
     }
 
-    func addDirect(name: String, url: String, homebaseToken: String, managerToken: String) {
-        Macs.add(PairedMac(id: "direct-" + UUID().uuidString, name: name.isEmpty ? "My Mac" : name, kind: .direct,
-                           url: url, homebaseToken: homebaseToken, managerToken: managerToken))
-        reloadMacs()
-    }
-
     func startDemo() {
         Macs.add(.demo)
         reloadMacs()

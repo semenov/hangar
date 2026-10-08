@@ -2,9 +2,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
@@ -213,33 +210,6 @@ func stopSession(pid int) error {
 	return nil
 }
 
-// apiToken is generated on first run. homebase's private share checks its own token on the public
-// URL, but its proxy also serves http://claude-manager.local to the whole LAN without one.
-func apiToken() (string, error) {
-	path := filepath.Join(stateDir, "token")
-	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) >= 32 {
-		return strings.TrimSpace(string(b)), nil
-	}
-	b := make([]byte, 24)
-	rand.Read(b)
-	tok := hex.EncodeToString(b)
-	return tok, os.WriteFile(path, []byte(tok+"\n"), 0o600)
-}
-
-func requireToken(token string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := r.Header.Get("X-Manager-Token")
-		if got == "" {
-			got = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		}
-		if r.URL.Path != "/healthz" && subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
-			writeJSON(w, nil, apiError{401, "missing or wrong X-Manager-Token"})
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // version is set at build time (-ldflags "-X main.version=..."); apiVersion changes when the app
 // and the server need to agree on something new.
 var version = "dev"
@@ -261,34 +231,22 @@ func main() {
 	}
 }
 
-// serve runs the API for the iOS app: through the relay (end-to-end encrypted, for paired phones)
-// and, when $PORT is set (homebase, Tailscale setups), as plain HTTP on 127.0.0.1 with a token.
+// serve runs the API for the iOS app. It is reachable only through the relay, end-to-end encrypted,
+// by phones paired with `hangar pair`; the Mac opens no ports.
 func serve() {
 	os.MkdirAll(stateDir, 0o755)
-	mux := apiMux()
 	if _, err := exec.LookPath("lsof"); err != nil {
 		log.Printf("warning: lsof not found, session directories will be empty")
 	}
 	log.Printf("hangar %s, projects in %s", version, devRoot)
-	if conf().Relay != "" {
-		go runRelay(conf().Relay, mux)
+	if conf().Relay == "" {
+		log.Fatalf("no relay in %s; the app can't reach this Mac", configPath())
 	}
-	port := os.Getenv("PORT")
-	if port == "" {
-		select {} // relay only
-	}
-	token, err := apiToken()
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("listening on 127.0.0.1:%s", port)
-	// Loopback only: this starts processes on the Mac, so it is reachable only through a
-	// token-checking proxy (homebase's private share) or from the Mac itself.
-	log.Fatal(http.ListenAndServe("127.0.0.1:"+port, requireToken(token, mux)))
+	runRelay(conf().Relay, apiMux())
 }
 
-// apiMux is the API, without authentication: the HTTP listener wraps it in a token check, and the
-// relay only reaches it from paired phones.
+// apiMux is the API. It has no authentication of its own: the relay client only passes it requests
+// from paired phones.
 func apiMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
