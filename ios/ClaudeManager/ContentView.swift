@@ -17,7 +17,7 @@ struct ContentView: View {
                 Background()
                 list
             }
-            .navigationTitle("Sessions")
+            .navigationBarTitleDisplayMode(.inline) // no title: the limits are the header
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showSettings = true } label: { Image(systemName: "gearshape") }
