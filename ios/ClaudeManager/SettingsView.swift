@@ -27,7 +27,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Server")
                 } footer: {
-                    Text("The claude-manager backend on your Mac, shared with `homebase share --private`. The manager token is in ~/Library/Application Support/claude-manager/token.")
+                    Text("The Hangar backend on your Mac, shared with `homebase share --private`. The manager token is in ~/Library/Application Support/claude-manager/token.")
                 }
                 Section {
                     Button("Reset to defaults") {
@@ -58,7 +58,7 @@ struct SettingsView: View {
                 managerToken = store.managerToken
             }
         }
-        .tint(Theme.peach)
+        .tint(Theme.accentSoft)
         .presentationDetents([.large])
     }
 }

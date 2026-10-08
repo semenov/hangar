@@ -49,7 +49,7 @@ struct LimitRing: View {
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(Theme.secondary)
                 }
-                .foregroundStyle(Theme.cream)
+                .foregroundStyle(Theme.text)
                 .animation(.snappy, value: limit.percent)
             }
             .frame(width: 84, height: 84)
@@ -58,7 +58,7 @@ struct LimitRing: View {
                 Text(title.0.uppercased())
                     .font(.caption2.weight(.semibold))
                     .tracking(1.2)
-                    .foregroundStyle(Theme.cream)
+                    .foregroundStyle(Theme.text)
                 Text(title.1 ?? " ")
                     .font(.caption2)
                     .foregroundStyle(Theme.secondary)

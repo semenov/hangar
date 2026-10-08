@@ -27,7 +27,7 @@ struct ContentView: View {
             }
             .searchable(text: $search, prompt: "Projects")
         }
-        .tint(Theme.peach)
+        .tint(Theme.accentSoft)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showSettings) { SettingsView(store: store) }
         .sheet(isPresented: $showNew) {
@@ -122,7 +122,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(s.name)
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(Theme.cream)
+                        .foregroundStyle(Theme.text)
                     HStack(spacing: 6) {
                         if let sub = s.subtitle { Text(sub) }
                         TimelineView(.periodic(from: .now, by: 30)) { ctx in
@@ -144,7 +144,7 @@ struct ContentView: View {
                 } else {
                     Button { toStop = s } label: {
                         Image(systemName: s.server ? "arrow.clockwise" : "stop.fill")
-                            .foregroundStyle(Theme.peach.opacity(0.8))
+                            .foregroundStyle(Theme.accentSoft.opacity(0.8))
                             .frame(width: 36, height: 36)
                             .contentShape(Rectangle())
                     }
@@ -176,7 +176,7 @@ struct ContentView: View {
                     .foregroundStyle(Theme.secondary)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(p.name).foregroundStyle(Theme.cream)
+                    Text(p.name).foregroundStyle(Theme.text)
                     Text(p.modified, format: .relative(presentation: .named))
                         .font(.footnote)
                         .foregroundStyle(Theme.secondary)
@@ -187,7 +187,7 @@ struct ContentView: View {
                 } else {
                     Button { start(p.name, open: false) } label: {
                         Image(systemName: "play.fill")
-                            .foregroundStyle(Theme.peach.opacity(0.8))
+                            .foregroundStyle(Theme.accentSoft.opacity(0.8))
                             .frame(width: 36, height: 36)
                             .contentShape(Rectangle())
                     }
@@ -223,7 +223,7 @@ struct StatusDot: View {
     let server: Bool
 
     var body: some View {
-        let color = state == "ready" ? (server ? Theme.peach : Theme.green) : Theme.amber
+        let color = state == "ready" ? (server ? Theme.accentSoft : Theme.green) : Theme.amber
         Circle()
             .fill(color)
             .frame(width: 10, height: 10)

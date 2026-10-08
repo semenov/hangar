@@ -62,7 +62,7 @@ struct UsageWidgetView: View {
             }
         } else {
             VStack(spacing: 6) {
-                Spark().fill(Theme.coral).frame(width: 22, height: 22)
+                HangarMark().fill(Theme.accent).frame(width: 22, height: 22)
                 Text("No data yet").font(.caption).foregroundStyle(Theme.secondary)
             }
         }
@@ -117,7 +117,7 @@ struct SmallView: View {
                 VStack(spacing: 1) {
                     Text(pct(session.percent))
                         .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.cream)
+                        .foregroundStyle(Theme.text)
                         .minimumScaleFactor(0.6)
                     Text("SESSION")
                         .font(.system(size: 8, weight: .semibold)).tracking(1)
@@ -156,7 +156,7 @@ struct MediumView: View {
                     VStack(spacing: 0) {
                         Text(pct(session.percent))
                             .font(.system(size: 26, weight: .bold, design: .rounded))
-                            .foregroundStyle(Theme.cream)
+                            .foregroundStyle(Theme.text)
                         Text("SESSION").font(.system(size: 8, weight: .semibold)).tracking(1)
                             .foregroundStyle(Theme.secondary)
                     }
@@ -171,13 +171,13 @@ struct MediumView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 5) {
-                    Spark().fill(Theme.coral).frame(width: 12, height: 12)
+                    HangarMark().fill(Theme.accent).frame(width: 12, height: 12)
                     Text("This week").font(.caption.weight(.semibold)).foregroundStyle(Theme.secondary)
                 }
                 ForEach(weekly) { limit in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(name(limit)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.cream)
+                            Text(name(limit)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
                             Spacer()
                             Text(pct(limit.percent))
                                 .font(.system(.subheadline, design: .rounded, weight: .bold))
@@ -210,7 +210,7 @@ struct CircularView: View {
     let session: Usage.Limit
     var body: some View {
         Gauge(value: min(session.percent, 100), in: 0...100) {
-            Spark()
+            HangarMark()
         } currentValueLabel: {
             Text("\(Int(session.percent.rounded()))")
                 .font(.system(.title3, design: .rounded, weight: .bold))
@@ -252,9 +252,9 @@ struct InlineView: View {
     let session: Usage.Limit
     var body: some View {
         if let week = usage.week {
-            Text("Claude \(pct(session.percent)) · week \(pct(week.percent))")
+            Text("Session \(pct(session.percent)) · week \(pct(week.percent))")
         } else {
-            Text("Claude \(pct(session.percent))")
+            Text("Session \(pct(session.percent))")
         }
     }
 }
@@ -263,12 +263,12 @@ struct InlineView: View {
 
 struct UsageWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "ClaudeUsage", provider: Provider()) { entry in
+        StaticConfiguration(kind: "HangarLimits", provider: Provider()) { entry in
             UsageWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
-        .configurationDisplayName("Claude Usage")
-        .description("How much of your Claude limits is used.")
+        .configurationDisplayName("Usage limits")
+        .description("How much of your session and weekly limits is used.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }
@@ -280,7 +280,7 @@ private struct WidgetBackground: View {
         case .systemSmall, .systemMedium:
             ZStack {
                 LinearGradient(colors: [Theme.bgTop, Theme.bgBottom], startPoint: .top, endPoint: .bottom)
-                RadialGradient(colors: [Theme.coral.opacity(0.2), .clear], center: .top, startRadius: 0, endRadius: 180)
+                RadialGradient(colors: [Theme.accentSoft.opacity(0.16), .clear], center: .top, startRadius: 0, endRadius: 180)
             }
         default:
             Color.clear

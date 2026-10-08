@@ -63,7 +63,7 @@ struct NewProjectView: View {
             .onAppear { focused = true }
             .interactiveDismissDisabled(working)
         }
-        .tint(Theme.peach)
+        .tint(Theme.accentSoft)
         .presentationDetents([.medium])
     }
 

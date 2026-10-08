@@ -1,6 +1,6 @@
 # claude-manager
 
-An iOS app that shows which Claude Code Remote Control sessions are running on the Mac, opens them
+Hangar is an iOS app that shows which Claude Code Remote Control sessions are running on the Mac, opens them
 in the Claude app, stops them, starts sessions in existing projects in `~/Dev` and creates new ones.
 
 - `backend/`: Go server (runs under homebase).
