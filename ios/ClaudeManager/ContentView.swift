@@ -144,7 +144,7 @@ struct ContentView: View {
                 } else {
                     Button { toStop = s } label: {
                         Image(systemName: s.server ? "arrow.clockwise" : "stop.fill")
-                            .foregroundStyle(s.server ? Theme.amber : Theme.red.opacity(0.85))
+                            .foregroundStyle(Theme.peach.opacity(0.8))
                             .frame(width: 36, height: 36)
                             .contentShape(Rectangle())
                     }
