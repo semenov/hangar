@@ -68,3 +68,7 @@ xcodebuild -scheme ClaudeManager -configuration Release -destination 'id=<device
   -derivedDataPath build/device -allowProvisioningUpdates build
 xcrun devicectl device install app --device <device-udid> "build/device/Build/Products/Release-iphoneos/Claude Sessions.app"
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
