@@ -51,6 +51,11 @@ struct Usage: Codable, Equatable {
 
     let limits: [Limit]
     let fetchedAt: Date
+
+    /// The 5-hour session limit, shown as the main gauge.
+    var session: Limit? { limits.first { $0.id.contains("session") } ?? limits.first }
+    /// The weekly limit across all models.
+    var week: Limit? { limits.first { $0.id.contains("week") && $0.id.contains("all") } ?? limits.first { $0.id.contains("week") } }
 }
 
 private extension String {

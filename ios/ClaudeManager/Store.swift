@@ -37,11 +37,7 @@ final class Store {
         isLoading = true
         defer { isLoading = false }
         do {
-            let fresh = try await API.overview()
-            if fresh.sessions != overview?.sessions {
-                WidgetCenter.shared.reloadAllTimelines()
-            }
-            overview = fresh
+            overview = try await API.overview()
             fetchedAt = .now
             error = nil
         } catch is CancellationError {
@@ -53,7 +49,11 @@ final class Store {
 
     func refreshUsage(force: Bool = false) async {
         do {
-            usage = try await API.usage(force: force)
+            let fresh = try await API.usage(force: force)
+            if fresh.limits != usage?.limits {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+            usage = fresh
             usageError = nil
         } catch is CancellationError {
         } catch let e as URLError where e.code == .cancelled {

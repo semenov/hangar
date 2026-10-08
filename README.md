@@ -19,8 +19,8 @@ in the Claude app, stops them, starts sessions in existing projects in `~/Dev` a
   A session stuck on an unknown prompt shows up as `waiting` with the screen text.
   - `GET /api/usage`: subscription limits, proxied from claude-monitor's backend (`USAGE_URL`,
     default `http://127.0.0.1:4001/api/usage`).
-- `ios/`: SwiftUI app (XcodeGen). `ios/Widget/`: WidgetKit extension (small/medium/large, lock
-  screen): running sessions, tap one to open it in Claude, plus the limits. `ios/Shared/`: models,
+- `ios/`: SwiftUI app (XcodeGen). `ios/Widget/`: the limits widgets, copied from claude-monitor
+  (home screen small/medium, lock screen circular/rectangular/inline). `ios/Shared/`: models,
   API client, theme. There is no App Group (it needs an explicit provisioning profile, i.e. an
   Apple ID signed in to Xcode), so the widget uses the server and tokens from `Secrets.swift`,
   not ones changed in the app's Settings. `tools/make_icon.py` renders the icon.
