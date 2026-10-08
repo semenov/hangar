@@ -40,6 +40,7 @@ hangar restart <name>   stop it and start it again with --continue (same convers
 hangar url|open|qr <name>
 hangar describe [-f] [name...]          one-line descriptions, written by Claude
 hangar describe --set <name> <text>     or by hand
+hangar describe --install               run it daily at 04:00 (LaunchAgent), for new projects
 hangar restore          start the sessions that were running before a reboot
 hangar restore --install | --list
 hangar limits           subscription limits (from claude-monitor)

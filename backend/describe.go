@@ -214,6 +214,8 @@ func cmdDescribe(args []string) error {
 			}
 			fmt.Println(green.Render("✓ ") + bold.Render(name) + "  " + text)
 			return nil
+		case "--install":
+			return installDescribe()
 		case "--clear":
 			if len(args) < i+2 {
 				return fmt.Errorf("usage: hangar describe --clear <name>")
@@ -292,5 +294,28 @@ func cmdDescribe(args []string) error {
 	if failed > 0 {
 		return fmt.Errorf("%d project(s) failed", failed)
 	}
+	return nil
+}
+
+const describeLabel = "ai.semenov.hangar.describe"
+
+// installDescribe schedules `hangar describe` daily at 04:00, so new projects get a description.
+// It only describes projects without one, so most days it doesn't call Claude at all. launchd runs
+// a missed run when the Mac wakes up.
+func installDescribe() error {
+	schedule := "\t<key>StartCalendarInterval</key>\n\t<dict>\n\t\t<key>Hour</key>\n\t\t<integer>4</integer>\n" +
+		"\t\t<key>Minute</key>\n\t\t<integer>0</integer>\n\t</dict>"
+	path, err := writeLaunchAgent(describeLabel, "hangar-describe.log", schedule, "describe")
+	if err != nil {
+		return err
+	}
+	// Load it now; otherwise it would start at the next login.
+	uid := fmt.Sprint(os.Getuid())
+	exec.Command("launchctl", "bootout", "gui/"+uid+"/"+describeLabel).Run()
+	if out, err := exec.Command("launchctl", "bootstrap", "gui/"+uid, path).CombinedOutput(); err != nil {
+		fmt.Println(amber.Render("! ") + "Couldn't load it now (" + strings.TrimSpace(string(out)) + "); it loads at the next login")
+	}
+	fmt.Println(green.Render("✓ ") + "Daily at 04:00: " + path)
+	fmt.Println(dim.Render("  Log: ~/Library/Logs/hangar-describe.log"))
 	return nil
 }

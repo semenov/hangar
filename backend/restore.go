@@ -77,10 +77,6 @@ func waitForNetwork(max time.Duration) bool {
 
 const restoreLabel = "ai.semenov.hangar.restore"
 
-func restorePlistPath() string {
-	return filepath.Join(homeDir, "Library", "LaunchAgents", restoreLabel+".plist")
-}
-
 // cmdRestore: `hangar restore` starts the recorded sessions that aren't running;
 // `--list` shows them; `--install` adds the login item and records the sessions running now.
 func cmdRestore(args []string) error {
@@ -158,15 +154,21 @@ func cmdRestore(args []string) error {
 	return nil
 }
 
-func installRestore() error {
+// writeLaunchAgent writes a LaunchAgent that runs `hangar <args...>`; schedule is extra plist XML
+// (RunAtLoad, StartCalendarInterval, ...).
+func writeLaunchAgent(label, logName, schedule string, args ...string) (string, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if p, err := filepath.EvalSymlinks(self); err == nil {
 		self = p
 	}
-	logFile := filepath.Join(homeDir, "Library", "Logs", "hangar-restore.log")
+	argXML := "\t\t<string>" + self + "</string>\n"
+	for _, a := range args {
+		argXML += "\t\t<string>" + a + "</string>\n"
+	}
+	logFile := filepath.Join(homeDir, "Library", "Logs", logName)
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -175,11 +177,8 @@ func installRestore() error {
 	<string>%s</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>%s</string>
-		<string>restore</string>
-	</array>
-	<key>RunAtLoad</key>
-	<true/>
+%s	</array>
+%s
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
@@ -193,13 +192,23 @@ func installRestore() error {
 	<string>Background</string>
 </dict>
 </plist>
-`, restoreLabel, self, homeDir, logFile, logFile)
-	if err := os.WriteFile(restorePlistPath(), []byte(plist), 0o644); err != nil {
+`, label, argXML, schedule, homeDir, logFile, logFile)
+	path := filepath.Join(homeDir, "Library", "LaunchAgents", label+".plist")
+	if err := os.WriteFile(path, []byte(plist), 0o644); err != nil {
+		return "", err
+	}
+	if out, err := exec.Command("plutil", "-lint", path).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("plist doesn't validate: %s", out)
+	}
+	return path, nil
+}
+
+func installRestore() error {
+	path, err := writeLaunchAgent(restoreLabel, "hangar-restore.log", "\t<key>RunAtLoad</key>\n\t<true/>", "restore")
+	if err != nil {
 		return err
 	}
-	if err := exec.Command("plutil", "-lint", restorePlistPath()).Run(); err != nil {
-		return fmt.Errorf("plist doesn't validate: %v", err)
-	}
+	logFile := filepath.Join(homeDir, "Library", "Logs", "hangar-restore.log")
 
 	// Record what's running now, so the first reboot brings it back too.
 	sessions, err := findSessions()
@@ -214,7 +223,7 @@ func installRestore() error {
 		addDesired(s.Name, filepath.Join(devRoot, s.Dir))
 		n++
 	}
-	fmt.Println(green.Render("✓ ") + "Login item: " + restorePlistPath())
+	fmt.Println(green.Render("✓ ") + "Login item: " + path)
 	fmt.Println(green.Render("✓ ") + fmt.Sprintf("%d running session(s) recorded; `hangar restore --list` shows them", n))
 	fmt.Println(dim.Render("  It runs at the next login. Logs: " + logFile))
 	return nil
