@@ -118,6 +118,21 @@ enum API {
         return try await request("POST", "/api/sessions", body: body, timeout: 75)
     }
 
+    private struct DescriptionReply: Decodable { let description: String }
+
+    /// Asks Claude on the Mac for a new description (a few seconds) and saves it.
+    static func describe(_ project: String) async throws -> String {
+        let r: DescriptionReply = try await request("POST", "/api/describe/\(project)", timeout: 150)
+        return r.description
+    }
+
+    /// Sets a description by hand; "" removes it.
+    static func setDescription(_ project: String, _ text: String) async throws -> String {
+        let body = try JSONSerialization.data(withJSONObject: ["description": text])
+        let r: DescriptionReply = try await request("PUT", "/api/projects/\(project)", body: body)
+        return r.description
+    }
+
     static func stop(pid: Int) async throws {
         let _: [String: Bool] = try await request("DELETE", "/api/sessions/\(pid)")
     }

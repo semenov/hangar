@@ -13,6 +13,8 @@ final class Store {
     var fetchedAt: Date?
     /// Names of projects whose session is being started or stopped.
     var busy: Set<String> = []
+    /// Projects whose description Claude is writing right now.
+    var describing: Set<String> = []
 
     var publicURL: String {
         get { API.publicURL }
@@ -74,6 +76,34 @@ final class Store {
         } catch {
             self.error = error.localizedDescription
             return nil
+        }
+    }
+
+    /// Returns the new description, or nil (with `error` set).
+    @discardableResult
+    func regenerateDescription(_ project: String) async -> String? {
+        describing.insert(project)
+        defer { describing.remove(project) }
+        do {
+            let text = try await API.describe(project)
+            error = nil
+            await refresh()
+            return text
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
+    func saveDescription(_ project: String, _ text: String) async -> Bool {
+        do {
+            _ = try await API.setDescription(project, text)
+            error = nil
+            await refresh()
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
         }
     }
 

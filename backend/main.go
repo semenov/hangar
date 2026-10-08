@@ -315,6 +315,50 @@ func serve() {
 		w.WriteHeader(resp.StatusCode)
 		io.Copy(w, resp.Body)
 	})
+	// Descriptions: PUT sets one by hand ("" clears it), POST .../describe asks Claude for one.
+	mux.HandleFunc("PUT /api/projects/{name...}", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		var body struct {
+			Description string `json:"description"`
+		}
+		if !dirRe.MatchString(name) {
+			writeJSON(w, nil, apiError{400, "invalid project"})
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, nil, apiError{400, "bad JSON: " + err.Error()})
+			return
+		}
+		text := strings.TrimSpace(body.Description)
+		err := setDescription(name, description{Text: text, Source: "manual", UpdatedAt: time.Now()})
+		writeJSON(w, map[string]string{"description": descriptionFor(name, loadDescriptions())}, err)
+	})
+	mux.HandleFunc("POST /api/describe/{name...}", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if !dirRe.MatchString(name) {
+			writeJSON(w, nil, apiError{400, "invalid project"})
+			return
+		}
+		dir := filepath.Join(devRoot, name)
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			writeJSON(w, nil, apiError{404, "no such project: " + name})
+			return
+		}
+		text, err := generateDescription(dir)
+		if err != nil && err != errEmpty {
+			text, err = generateDescription(dir) // one retry, as in `hangar describe`
+		}
+		switch {
+		case err == errEmpty:
+			writeJSON(w, map[string]string{"description": emptyDescription}, nil)
+		case err != nil:
+			writeJSON(w, nil, apiError{502, err.Error()})
+		default:
+			err = setDescription(name, description{Text: text, Source: "auto", UpdatedAt: time.Now()})
+			log.Printf("described %s: %s", name, text)
+			writeJSON(w, map[string]string{"description": text}, err)
+		}
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))
 	})

@@ -80,6 +80,9 @@ func isEmptyProject(dir string) bool {
 // descriptionFor is what lists show: empty projects say so, checked live, so the label goes away
 // as soon as a project gets files.
 func descriptionFor(name string, descs map[string]description) string {
+	if d, ok := descs[name]; ok && d.Source == "manual" {
+		return d.Text
+	}
 	if name != "" && isEmptyProject(filepath.Join(devRoot, name)) {
 		return emptyDescription
 	}

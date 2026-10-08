@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var showNew = false
     @State private var search = ""
     @State private var toStop: Session?
+    @State private var editing: EditTarget?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
@@ -34,6 +35,9 @@ struct ContentView: View {
             NewProjectView(store: store) { session in
                 if let link = session.link { openURL(link) }
             }
+        }
+        .sheet(item: $editing) { t in
+            DescriptionEditor(store: store, project: t.project, original: t.description ?? "")
         }
         .confirmationDialog(toStop.map { "Stop \($0.name)?" } ?? "",
                             isPresented: Binding(get: { toStop != nil }, set: { if !$0 { toStop = nil } }),
@@ -123,12 +127,7 @@ struct ContentView: View {
                     Text(s.name)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.text)
-                    if let d = s.description {
-                        Text(d)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.text.opacity(0.75))
-                            .lineLimit(2)
-                    }
+                    DescriptionLine(text: s.description, describing: store.describing.contains(s.dir))
                     HStack(spacing: 6) {
                         if let sub = s.subtitle { Text(sub) }
                         TimelineView(.periodic(from: .now, by: 30)) { ctx in
@@ -168,6 +167,9 @@ struct ContentView: View {
                 Button { openURL(link) } label: { Label("Open in Claude", systemImage: "arrow.up.forward.app") }
                 Button { UIPasteboard.general.url = link } label: { Label("Copy link", systemImage: "link") }
             }
+            if !s.dir.isEmpty && !s.dir.hasPrefix("/") {
+                descriptionMenu(project: s.dir, description: s.description)
+            }
             Button(role: .destructive) { toStop = s } label: {
                 Label("Stop session", systemImage: "stop.fill")
             }
@@ -183,12 +185,7 @@ struct ContentView: View {
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(p.name).foregroundStyle(Theme.text)
-                    if let d = p.description {
-                        Text(d)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.text.opacity(0.75))
-                            .lineLimit(2)
-                    }
+                    DescriptionLine(text: p.description, describing: store.describing.contains(p.name))
                     Text(p.modified, format: .relative(presentation: .named))
                         .font(.footnote)
                         .foregroundStyle(Theme.secondary)
@@ -209,6 +206,21 @@ struct ContentView: View {
         }
         .disabled(store.busy.contains(p.name))
         .listRowBackground(Theme.card)
+        .contextMenu {
+            Button { start(p.name, open: true) } label: { Label("Start and open", systemImage: "play.fill") }
+            descriptionMenu(project: p.name, description: p.description)
+        }
+    }
+
+    @ViewBuilder
+    private func descriptionMenu(project: String, description: String?) -> some View {
+        Button { editing = EditTarget(project: project, description: description) } label: {
+            Label("Edit description", systemImage: "pencil")
+        }
+        Button { Task { await store.regenerateDescription(project) } } label: {
+            Label("Regenerate with Claude", systemImage: "sparkles")
+        }
+        .disabled(store.describing.contains(project))
     }
 
     private func errorRow(_ error: String) -> some View {
@@ -227,6 +239,31 @@ struct ContentView: View {
         if m < 60 { return "\(m)m" }
         if m < 24 * 60 { return "\(m / 60)h \(m % 60)m" }
         return "\(m / (24 * 60))d \(m / 60 % 24)h"
+    }
+}
+
+struct EditTarget: Identifiable {
+    let project: String
+    let description: String?
+    var id: String { project }
+}
+
+/// A row's description, or a placeholder while Claude writes one.
+struct DescriptionLine: View {
+    let text: String?
+    let describing: Bool
+
+    var body: some View {
+        if describing {
+            Label("Claude is writing a description…", systemImage: "sparkles")
+                .font(.footnote)
+                .foregroundStyle(Theme.accentSoft)
+        } else if let text {
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(Theme.text.opacity(0.75))
+                .lineLimit(2)
+        }
     }
 }
 
