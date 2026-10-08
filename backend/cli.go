@@ -23,6 +23,7 @@ const usageText = `hangar: Claude Code Remote Control sessions for the projects 
   hangar start <name>     start a session in ~/Dev/<name>  (<name> may be a/b)
   hangar stop <name>      stop a session
   hangar restart <name>  stop it and start it again, continuing the conversation
+  hangar rename <name> <new-name>   rename the folder and its session (restarts it if running)
   hangar url <name>       print a session's claude.ai link
   hangar open <name>      open it in the browser
   hangar qr <name>        show its link as a QR code, for the phone
@@ -75,6 +76,8 @@ func cliMain(cmd string, args []string) {
 		err = cmdSession(cmd, args[0])
 	case "describe":
 		err = cmdDescribe(args)
+	case "rename", "mv":
+		err = cmdRename(args)
 	case "restore":
 		err = cmdRestore(args)
 	case "limits", "usage":

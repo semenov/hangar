@@ -359,6 +359,20 @@ func serve() {
 			writeJSON(w, map[string]string{"description": text}, err)
 		}
 	})
+	mux.HandleFunc("POST /api/rename/{name...}", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			To string `json:"to"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, nil, apiError{400, "bad JSON: " + err.Error()})
+			return
+		}
+		res, err := renameProject(r.PathValue("name"), body.To)
+		if err == nil {
+			log.Printf("renamed %s to %s", r.PathValue("name"), res.Project)
+		}
+		writeJSON(w, res, err)
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))
 	})

@@ -19,6 +19,9 @@ in the Claude app, stops them, starts sessions in existing projects in `~/Dev` a
   A session stuck on an unknown prompt shows up as `waiting` with the screen text.
   - `POST /api/describe/{project}`: has Claude write a description; `PUT /api/projects/{project}
     {"description"}` sets one by hand (`""` removes it).
+  - `POST /api/rename/{project} {"to"}`: renames the folder and its session. It moves the
+    description, the restore entry and Claude's transcripts (`~/.claude/projects/<encoded path>`),
+    and restarts a running session under the new name with `--continue`.
   - `GET /api/usage`: subscription limits, proxied from claude-monitor's backend (`USAGE_URL`,
     default `http://127.0.0.1:4001/api/usage`).
 - `ios/`: SwiftUI app (XcodeGen). `ios/Widget/`: the limits widgets, copied from claude-monitor
@@ -39,6 +42,7 @@ hangar new <name>       create ~/Dev/<name> and start a session in it
 hangar start <name>     start a session in ~/Dev/<name>
 hangar stop <name>      stop a session
 hangar restart <name>   stop it and start it again with --continue (same conversation)
+hangar rename <name> <new-name>   rename the folder and its session together
 hangar url|open|qr <name>
 hangar describe [-f] [name...]          one-line descriptions, written by Claude
 hangar describe --set <name> <text>     or by hand

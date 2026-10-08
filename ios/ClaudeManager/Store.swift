@@ -95,6 +95,21 @@ final class Store {
         }
     }
 
+    /// Returns the new path, or nil (with `error` set).
+    func rename(_ project: String, to name: String) async -> String? {
+        busy.insert((project as NSString).lastPathComponent)
+        defer { busy.remove((project as NSString).lastPathComponent) }
+        do {
+            let path = try await API.rename(project, to: name)
+            error = nil
+            await refresh()
+            return path
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
     func saveDescription(_ project: String, _ text: String) async -> Bool {
         do {
             _ = try await API.setDescription(project, text)

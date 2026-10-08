@@ -37,7 +37,7 @@ struct ContentView: View {
             }
         }
         .sheet(item: $editing) { t in
-            DescriptionEditor(store: store, project: t.project, original: t.description ?? "")
+            ProjectEditor(store: store, project: t.project, original: t.description ?? "", running: t.running)
         }
         .confirmationDialog(toStop.map { "Stop \($0.name)?" } ?? "",
                             isPresented: Binding(get: { toStop != nil }, set: { if !$0 { toStop = nil } }),
@@ -162,8 +162,8 @@ struct ContentView: View {
             Button("Stop", role: .destructive) { toStop = s }
                 .tint(Theme.red)
             if !s.dir.isEmpty && !s.dir.hasPrefix("/") {
-                Button { editing = EditTarget(project: s.dir, description: s.description) } label: {
-                    Label("Description", systemImage: "pencil")
+                Button { editing = EditTarget(project: s.dir, description: s.description, running: true) } label: {
+                    Label("Edit", systemImage: "pencil")
                 }
                 .tint(Theme.accentSoft)
             }
@@ -174,7 +174,7 @@ struct ContentView: View {
                 Button { UIPasteboard.general.url = link } label: { Label("Copy link", systemImage: "link") }
             }
             if !s.dir.isEmpty && !s.dir.hasPrefix("/") {
-                descriptionMenu(project: s.dir, description: s.description)
+                descriptionMenu(project: s.dir, description: s.description, running: true)
             }
             Button(role: .destructive) { toStop = s } label: {
                 Label("Stop session", systemImage: "stop.fill")
@@ -216,21 +216,21 @@ struct ContentView: View {
         .swipeActions {
             Button { start(p.name, open: false) } label: { Label("Start", systemImage: "play.fill") }
                 .tint(Theme.accent)
-            Button { editing = EditTarget(project: p.name, description: p.description) } label: {
-                Label("Description", systemImage: "pencil")
+            Button { editing = EditTarget(project: p.name, description: p.description, running: false) } label: {
+                Label("Edit", systemImage: "pencil")
             }
             .tint(Theme.accentSoft)
         }
         .contextMenu {
             Button { start(p.name, open: true) } label: { Label("Start and open", systemImage: "play.fill") }
-            descriptionMenu(project: p.name, description: p.description)
+            descriptionMenu(project: p.name, description: p.description, running: false)
         }
     }
 
     @ViewBuilder
-    private func descriptionMenu(project: String, description: String?) -> some View {
-        Button { editing = EditTarget(project: project, description: description) } label: {
-            Label("Edit description", systemImage: "pencil")
+    private func descriptionMenu(project: String, description: String?, running: Bool) -> some View {
+        Button { editing = EditTarget(project: project, description: description, running: running) } label: {
+            Label("Edit…", systemImage: "pencil")
         }
         Button { Task { await store.regenerateDescription(project) } } label: {
             Label("Regenerate with Claude", systemImage: "sparkles")
@@ -260,6 +260,7 @@ struct ContentView: View {
 struct EditTarget: Identifiable {
     let project: String
     let description: String?
+    let running: Bool
     var id: String { project }
 }
 

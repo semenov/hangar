@@ -126,6 +126,15 @@ enum API {
         return r.description
     }
 
+    private struct RenameReply: Decodable { let project: String }
+
+    /// Renames ~/Dev/<project> (folder and session); returns the new path. A running session restarts.
+    static func rename(_ project: String, to: String) async throws -> String {
+        let body = try JSONSerialization.data(withJSONObject: ["to": to])
+        let r: RenameReply = try await request("POST", "/api/rename/\(project)", body: body, timeout: 90)
+        return r.project
+    }
+
     /// Sets a description by hand; "" removes it.
     static func setDescription(_ project: String, _ text: String) async throws -> String {
         let body = try JSONSerialization.data(withJSONObject: ["description": text])
