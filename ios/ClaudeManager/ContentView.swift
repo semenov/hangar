@@ -7,7 +7,6 @@ struct ContentView: View {
     @State private var showNew = false
     @State private var search = ""
     @State private var toStop: Session?
-    @State private var toStart: Project?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
@@ -46,12 +45,6 @@ struct ContentView: View {
             Text(s.server
                  ? "Sessions open in it are closed; launchd starts it again within 30 s."
                  : "Anything it is doing is interrupted.")
-        }
-        .confirmationDialog(toStart.map { "Start a session in \($0.name)?" } ?? "",
-                            isPresented: Binding(get: { toStart != nil }, set: { if !$0 { toStart = nil } }),
-                            titleVisibility: .visible, presenting: toStart) { p in
-            Button("Start and open") { start(p.name, open: true) }
-            Button("Start") { start(p.name, open: false) }
         }
         .task(id: scenePhase) {
             // Poll while the app is in the foreground.
@@ -147,7 +140,15 @@ struct ContentView: View {
                 }
                 Spacer()
                 if store.busy.contains(s.name) {
-                    ProgressView()
+                    ProgressView().frame(width: 36)
+                } else {
+                    Button { toStop = s } label: {
+                        Image(systemName: s.server ? "arrow.clockwise" : "stop.fill")
+                            .foregroundStyle(s.server ? Theme.amber : Theme.red.opacity(0.85))
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
                 }
             }
         }
@@ -168,7 +169,8 @@ struct ContentView: View {
     }
 
     private func projectRow(_ p: Project) -> some View {
-        Button { toStart = p } label: {
+        // Tapping the row starts and opens the session; the play button only starts it.
+        Button { start(p.name, open: true) } label: {
             HStack(spacing: 12) {
                 Image(systemName: p.git ? "folder.fill.badge.gearshape" : "folder.fill")
                     .foregroundStyle(Theme.secondary)
@@ -181,9 +183,15 @@ struct ContentView: View {
                 }
                 Spacer()
                 if store.busy.contains(p.name) {
-                    ProgressView()
+                    ProgressView().frame(width: 36)
                 } else {
-                    Image(systemName: "play.fill").foregroundStyle(Theme.peach.opacity(0.8))
+                    Button { start(p.name, open: false) } label: {
+                        Image(systemName: "play.fill")
+                            .foregroundStyle(Theme.peach.opacity(0.8))
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
                 }
             }
         }
