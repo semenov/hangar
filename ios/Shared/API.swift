@@ -16,7 +16,7 @@ struct Session: Codable, Equatable, Identifiable {
     var link: URL? { url.flatMap(URL.init(string:)) }
     /// The directory when it doesn't just repeat the name.
     var subtitle: String? {
-        if server { return "~/Dev · server" }
+        if dir.isEmpty { return "~/Dev" }
         return dir == name ? nil : "~/Dev/\(dir)"
     }
 }

@@ -73,9 +73,6 @@ func getOverview() (overview, error) {
 		return overview{}, err
 	}
 	sort.Slice(sessions, func(i, j int) bool {
-		if sessions[i].Server != sessions[j].Server {
-			return sessions[i].Server
-		}
 		return sessions[i].StartedAt.After(sessions[j].StartedAt)
 	})
 	projects, err := listProjects()
@@ -189,7 +186,6 @@ func orDefault(s, def string) string {
 }
 
 // stopSession sends SIGTERM to a session's claude process, then SIGKILL if it hangs around.
-// For the server, launchd's KeepAlive starts it again: that's a restart.
 func stopSession(pid int) error {
 	sessions, err := findSessions()
 	if err != nil {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -105,8 +104,6 @@ func sessionLine(s Session, width int) string {
 	name := fmt.Sprintf("%-*s", width, s.Name)
 	up := dim.Render(fmt.Sprintf("up %-8s", uptime(s.StartedAt)))
 	switch {
-	case s.Server:
-		return sky.Render("●") + " " + name + " " + up + " " + dim.Render("server · ~/Dev")
 	case s.State == "ready":
 		return green.Render("●") + " " + bold.Render(name) + " " + up + " " + dim.Render(s.URL)
 	case s.State == "waiting":
@@ -176,9 +173,6 @@ func cmdSession(cmd, name string) error {
 		return err
 	}
 	if cmd == "stop" {
-		if s.Server {
-			return errors.New("the Dev Projects server is run by launchd; it would just start again")
-		}
 		if err := stopSession(s.PID); err != nil {
 			return err
 		}

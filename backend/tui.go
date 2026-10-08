@@ -290,11 +290,7 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "x", "delete", "backspace":
 		if it != nil && it.session != nil {
-			if it.session.Server {
-				m.err = "The Dev Projects server is run by launchd; stopping it just restarts it"
-			} else {
-				m.mode = modeConfirmStop
-			}
+			m.mode = modeConfirmStop
 		}
 	case "c":
 		if it != nil && it.session != nil && it.session.URL != "" {
@@ -335,13 +331,7 @@ func (m model) View() string {
 
 	var top []string
 	head := titleStyle.Render("⌂ hangar")
-	running := 0
-	for _, s := range m.overview.Sessions {
-		if !s.Server {
-			running++
-		}
-	}
-	head += dim.Render(fmt.Sprintf("   %d running · %d projects", running, len(m.overview.Projects)))
+	head += dim.Render(fmt.Sprintf("   %d running · %d projects", len(m.overview.Sessions), len(m.overview.Projects)))
 	if m.usage != nil {
 		var parts []string
 		for _, l := range m.usage.Limits {
@@ -427,8 +417,6 @@ func (m model) row(it item, selected bool) string {
 		switch {
 		case m.busy[s.Name] == "stopping":
 			dot, info = amber.Render("◌"), amber.Render("stopping…")
-		case s.Server:
-			dot, info = sky.Render("●"), dim.Render("server · ~/Dev")
 		case s.State == "waiting":
 			dot, info = amber.Render("●"), waitingStyle.Render("waiting: "+short(s.Waiting, 50))
 		case s.State != "ready":
@@ -457,10 +445,8 @@ func help(it *item) string {
 	k := func(key, what string) string { return keyStyle.Render(key) + dim.Render(" "+what) }
 	var parts []string
 	switch {
-	case it != nil && it.session != nil && !it.session.Server:
-		parts = []string{k("enter", "open"), k("space", "qr"), k("c", "copy link"), k("x", "stop")}
 	case it != nil && it.session != nil:
-		parts = []string{k("enter", "open"), k("space", "qr")}
+		parts = []string{k("enter", "open"), k("space", "qr"), k("c", "copy link"), k("x", "stop")}
 	case it != nil:
 		parts = []string{k("enter", "start & open"), k("s", "start")}
 	}

@@ -35,16 +35,14 @@ struct ContentView: View {
                 if let link = session.link { openURL(link) }
             }
         }
-        .confirmationDialog(toStop.map { $0.server ? "Restart the \($0.name) server?" : "Stop \($0.name)?" } ?? "",
+        .confirmationDialog(toStop.map { "Stop \($0.name)?" } ?? "",
                             isPresented: Binding(get: { toStop != nil }, set: { if !$0 { toStop = nil } }),
                             titleVisibility: .visible, presenting: toStop) { s in
-            Button(s.server ? "Restart" : "Stop session", role: .destructive) {
+            Button("Stop session", role: .destructive) {
                 Task { await store.stop(s) }
             }
         } message: { s in
-            Text(s.server
-                 ? "Sessions open in it are closed; launchd starts it again within 30 s."
-                 : "Anything it is doing is interrupted.")
+            Text("Anything it is doing is interrupted.")
         }
         .task(id: scenePhase) {
             // Poll while the app is in the foreground.
@@ -79,7 +77,7 @@ struct ContentView: View {
                 }
             }
             if search.isEmpty && !store.sessions.isEmpty {
-                Section("Running · \(store.sessions.filter { !$0.server }.count)") {
+                Section("Running · \(store.sessions.count)") {
                     ForEach(store.sessions) { s in sessionRow(s) }
                 }
             }
@@ -120,7 +118,7 @@ struct ContentView: View {
             if let link = s.link { openURL(link) }
         } label: {
             HStack(spacing: 12) {
-                StatusDot(state: store.busy.contains(s.name) ? "starting" : s.state, server: s.server)
+                StatusDot(state: store.busy.contains(s.name) ? "starting" : s.state)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(s.name)
                         .font(.body.weight(.semibold))
@@ -151,7 +149,7 @@ struct ContentView: View {
                     ProgressView().frame(width: 36)
                 } else {
                     Button { toStop = s } label: {
-                        Image(systemName: s.server ? "arrow.clockwise" : "stop.fill")
+                        Image(systemName: "stop.fill")
                             .foregroundStyle(Theme.accentSoft.opacity(0.8))
                             .frame(width: 36, height: 36)
                             .contentShape(Rectangle())
@@ -162,8 +160,8 @@ struct ContentView: View {
         }
         .listRowBackground(Theme.card)
         .swipeActions {
-            Button(s.server ? "Restart" : "Stop", role: s.server ? nil : .destructive) { toStop = s }
-                .tint(s.server ? Theme.amber : Theme.red)
+            Button("Stop", role: .destructive) { toStop = s }
+                .tint(Theme.red)
         }
         .contextMenu {
             if let link = s.link {
@@ -171,7 +169,7 @@ struct ContentView: View {
                 Button { UIPasteboard.general.url = link } label: { Label("Copy link", systemImage: "link") }
             }
             Button(role: .destructive) { toStop = s } label: {
-                Label(s.server ? "Restart server" : "Stop session", systemImage: s.server ? "arrow.clockwise" : "stop.fill")
+                Label("Stop session", systemImage: "stop.fill")
             }
         }
     }
@@ -234,10 +232,9 @@ struct ContentView: View {
 
 struct StatusDot: View {
     let state: String
-    let server: Bool
 
     var body: some View {
-        let color = state == "ready" ? (server ? Theme.accentSoft : Theme.green) : Theme.amber
+        let color = state == "ready" ? Theme.green : Theme.amber
         Circle()
             .fill(color)
             .frame(width: 10, height: 10)

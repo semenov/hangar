@@ -86,9 +86,6 @@ final class Store {
         } catch {
             self.error = error.localizedDescription
         }
-        if session.server {
-            try? await Task.sleep(for: .seconds(2)) // launchd brings the server back
-        }
         await refresh()
     }
 }
