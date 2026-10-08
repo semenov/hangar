@@ -23,8 +23,11 @@ targets:
     platform: iOS
     sources:
       - path: ClaudeManager
+      - path: Shared
         excludes:
           - "*.example"
+    dependencies:
+      - target: SessionsWidget
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.semenov.claude-manager
@@ -36,3 +39,24 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+
+  SessionsWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widget
+      - path: Shared
+        excludes:
+          - "*.example"
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Sessions
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.semenov.claude-manager.widget
+        PRODUCT_NAME: SessionsWidget
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES

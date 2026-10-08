@@ -58,8 +58,11 @@ private extension String {
 }
 
 /// Talks to the claude-manager backend on the Mac.
+/// No App Group (it needs an explicit provisioning profile), so the widget doesn't see settings
+/// changed in the app: it uses the defaults from Secrets.swift and keeps its own cache.
 enum API {
-    private static var defaults: UserDefaults { .standard }
+    static var defaults: UserDefaults { .standard }
+    private static let overviewKey = "lastOverview", usageKey = "lastUsage"
 
     static var publicURL: String {
         get { defaults.string(forKey: "publicURL") ?? Secrets.publicServer }
@@ -82,12 +85,24 @@ enum API {
         return d
     }()
 
-    static func overview() async throws -> Overview {
-        try await request("GET", "/api/overview")
+    static var cachedOverview: Overview? {
+        defaults.data(forKey: overviewKey).flatMap { try? decoder.decode(Overview.self, from: $0) }
+    }
+    static var cachedUsage: Usage? {
+        defaults.data(forKey: usageKey).flatMap { try? decoder.decode(Usage.self, from: $0) }
     }
 
-    static func usage(force: Bool = false) async throws -> Usage {
-        try await request("GET", "/api/usage" + (force ? "?refresh=1" : ""), timeout: 80)
+    static func overview(timeout: TimeInterval = 20) async throws -> Overview {
+        let (o, data): (Overview, Data) = try await requestData("GET", "/api/overview", timeout: timeout)
+        defaults.set(data, forKey: overviewKey)
+        return o
+    }
+
+    static func usage(force: Bool = false, timeout: TimeInterval = 80) async throws -> Usage {
+        let (u, data): (Usage, Data) = try await requestData("GET", "/api/usage" + (force ? "?refresh=1" : ""),
+                                                             timeout: timeout)
+        defaults.set(data, forKey: usageKey)
+        return u
     }
 
     /// Starts a session; the backend waits until it is registered, so this can take ~10 s.
@@ -102,6 +117,11 @@ enum API {
 
     private static func request<T: Decodable>(_ method: String, _ path: String, body: Data? = nil,
                                               timeout: TimeInterval = 20) async throws -> T {
+        try await requestData(method, path, body: body, timeout: timeout).0
+    }
+
+    private static func requestData<T: Decodable>(_ method: String, _ path: String, body: Data? = nil,
+                                                  timeout: TimeInterval = 20) async throws -> (T, Data) {
         let base = publicURL.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let url = URL(string: base + path) else { throw URLError(.badURL) }
@@ -121,6 +141,6 @@ enum API {
             let msg = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
             throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: msg ?? "HTTP \(http.statusCode)"])
         }
-        return try decoder.decode(T.self, from: data)
+        return (try decoder.decode(T.self, from: data), data)
     }
 }

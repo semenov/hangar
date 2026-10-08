@@ -1,5 +1,5 @@
 ios/build/
 ios/*.xcodeproj/
-ios/ClaudeManager/Secrets.swift
+ios/Shared/Secrets.swift
 ios/Local.xcconfig
 backend/.bin/

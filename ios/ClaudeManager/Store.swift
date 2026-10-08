@@ -1,11 +1,12 @@
 import Foundation
 import Observation
+import WidgetKit
 
 @MainActor
 @Observable
 final class Store {
-    var overview: Overview?
-    var usage: Usage?
+    var overview: Overview? = API.cachedOverview // last known state, shown while the request runs
+    var usage: Usage? = API.cachedUsage
     var usageError: String?
     var error: String?
     var isLoading = false
@@ -36,7 +37,11 @@ final class Store {
         isLoading = true
         defer { isLoading = false }
         do {
-            overview = try await API.overview()
+            let fresh = try await API.overview()
+            if fresh.sessions != overview?.sessions {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+            overview = fresh
             fetchedAt = .now
             error = nil
         } catch is CancellationError {
