@@ -61,6 +61,31 @@ func setDescription(name string, d description) error {
 
 const describePrompt = `You have no tools; answer from the text below only, even if it is thin. Write a one-line description (max 90 characters, English, no trailing period, don't start with the project's name) of this software project, for a list of projects. Say what it is or does, concretely. Reply with the description only.`
 
+const emptyDescription = "Empty project"
+
+// isEmptyProject: nothing in the folder but dotfiles (a fresh `git init` counts as empty).
+func isEmptyProject(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".") || e.Name() == ".mcp.json" {
+			return false
+		}
+	}
+	return true
+}
+
+// descriptionFor is what lists show: empty projects say so, checked live, so the label goes away
+// as soon as a project gets files.
+func descriptionFor(name string, descs map[string]description) string {
+	if name != "" && isEmptyProject(filepath.Join(devRoot, name)) {
+		return emptyDescription
+	}
+	return descs[name].Text
+}
+
 // projectContext is what Claude sees: the file list and the start of the docs and manifests.
 func projectContext(dir string) (string, bool) {
 	entries, err := os.ReadDir(dir)
@@ -129,7 +154,7 @@ func first(s []string, n int) []string {
 func generateDescription(dir string) (string, error) {
 	ctxText, ok := projectContext(dir)
 	if !ok {
-		return "Empty folder", nil
+		return "", errEmpty
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -160,6 +185,8 @@ func plausible(text string) bool {
 	return text != "" && len(text) < 200 && !strings.ContainsAny(text, "<>") && !strings.HasSuffix(text, "?") &&
 		!strings.HasPrefix(low, "i ") && !strings.HasPrefix(low, "i'") && !strings.Contains(low, "can't tell")
 }
+
+var errEmpty = fmt.Errorf("empty project")
 
 func claudeBin() string {
 	if p, err := exec.LookPath("claude"); err == nil {
@@ -204,6 +231,12 @@ func cmdDescribe(args []string) error {
 			return err
 		}
 		for _, p := range projects {
+			if isEmptyProject(filepath.Join(devRoot, p.Name)) {
+				if _, ok := existing[p.Name]; ok && existing[p.Name].Source != "manual" {
+					setDescription(p.Name, description{}) // shown as "Empty project" while it's empty
+				}
+				continue
+			}
 			d, ok := existing[p.Name]
 			// Manual descriptions are only replaced when a project is named explicitly.
 			if !ok || (force && d.Source != "manual") {
@@ -229,11 +262,13 @@ func cmdDescribe(args []string) error {
 			for name := range jobs {
 				dir := filepath.Join(devRoot, name)
 				text, err := generateDescription(dir)
-				if err != nil { // models misfire now and then; one retry
+				if err != nil && err != errEmpty { // models misfire now and then; one retry
 					text, err = generateDescription(dir)
 				}
 				outMu.Lock()
-				if err != nil {
+				if err == errEmpty {
+					fmt.Println(dim.Render("· " + fmt.Sprintf("%-24s", name) + " " + emptyDescription))
+				} else if err != nil {
 					failed++
 					fmt.Println(red.Render("✗ ") + bold.Render(name) + "  " + dim.Render(err.Error()))
 				} else {

@@ -103,7 +103,7 @@ func findSessions() ([]Session, error) {
 	for i := range sessions {
 		s := &sessions[i]
 		s.Dir = relDir(dirs[s.PID])
-		s.Description = descs[s.Dir].Text
+		s.Description = descriptionFor(s.Dir, descs)
 		if s.Server {
 			continue
 		}
@@ -204,7 +204,7 @@ func listProjects() ([]Project, error) {
 		}
 		_, gitErr := os.Stat(filepath.Join(devRoot, e.Name(), ".git"))
 		res = append(res, Project{Name: e.Name(), Modified: info.ModTime().Truncate(time.Second), Git: gitErr == nil,
-			Description: descs[e.Name()].Text})
+			Description: descriptionFor(e.Name(), descs)})
 	}
 	return res, nil
 }
