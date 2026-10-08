@@ -36,14 +36,24 @@ hangar projects         projects in ~/Dev
 hangar new <name>       create ~/Dev/<name> and start a session in it
 hangar start <name>     start a session in ~/Dev/<name>
 hangar stop <name>      stop a session
+hangar restart <name>   stop it and start it again with --continue (same conversation)
 hangar url|open|qr <name>
 hangar describe [-f] [name...]          one-line descriptions, written by Claude
 hangar describe --set <name> <text>     or by hand
+hangar restore          start the sessions that were running before a reboot
+hangar restore --install | --list
 hangar limits           subscription limits (from claude-monitor)
 hangar serve            HTTP API for the iOS app (what homebase runs)
 ```
 
 Sessions it starts get the same detached keeper as ones started from the app.
+
+Sessions survive a reboot: each one started through hangar or the app is recorded in
+`~/Library/Application Support/claude-manager/desired.json` until it's stopped (hangar, the app)
+or exits on its own (`/exit`; at shutdown the keeper itself gets SIGTERM and keeps the entry).
+`hangar restore --install` writes a LaunchAgent that runs `hangar restore` at login: it waits for
+claude.ai to be reachable and starts each recorded session with `--continue`, which resumes the
+folder's last conversation (or starts a new one if there is none).
 
 `hangar describe` sends each project's file list and the start of its README/CLAUDE.md/manifests to
 `claude -p --model haiku` (no tools, run outside the project, nothing saved) and keeps the answers in

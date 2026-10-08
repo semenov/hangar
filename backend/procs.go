@@ -91,7 +91,9 @@ func findSessions() ([]Session, error) {
 	var pids []int
 	for _, p := range ps {
 		if m := rcSessionRe.FindStringSubmatch(p.args); m != nil {
-			sessions = append(sessions, Session{Name: unquote(m[1]), PID: p.pid, StartedAt: p.started})
+			// Restored sessions run as `claude --remote-control <name> --continue`.
+			name := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(m[1]), "--continue"))
+			sessions = append(sessions, Session{Name: unquote(name), PID: p.pid, StartedAt: p.started})
 			pids = append(pids, p.pid)
 		} else if m := rcServerRe.FindStringSubmatch(p.args); m != nil {
 			sessions = append(sessions, Session{Name: unquote(m[1]), PID: p.pid, StartedAt: p.started, Server: true, State: "ready"})

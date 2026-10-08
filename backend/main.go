@@ -90,6 +90,7 @@ type startRequest struct {
 	Name   string `json:"name"`   // session name; defaults to the last component of dir
 	Dir    string `json:"dir"`    // relative to ~/Dev; defaults to name
 	Create bool   `json:"create"` // create the directory (new project)
+	Resume bool   `json:"-"`      // continue the directory's last conversation (restore after reboot)
 }
 
 var startMu sync.Mutex
@@ -139,10 +140,11 @@ func startSession(req startRequest) (Session, error) {
 	}
 
 	os.Remove(statePath(req.Name))
-	exited, err := spawnKeeper(req.Name, dir)
+	exited, err := spawnKeeper(req.Name, dir, req.Resume)
 	if err != nil {
 		return Session{}, err
 	}
+	addDesired(req.Name, dir)
 
 	// Wait until the session is registered (or clearly stuck) so the app can open it right away.
 	deadline := time.Now().Add(40 * time.Second)
@@ -200,6 +202,7 @@ func stopSession(pid int) error {
 	if target == nil {
 		return apiError{404, "no session with pid " + strconv.Itoa(pid)}
 	}
+	removeDesired(target.Name) // stopped on purpose: don't bring it back after a reboot
 	syscall.Kill(pid, syscall.SIGTERM)
 	for i := 0; i < 50; i++ {
 		time.Sleep(100 * time.Millisecond)

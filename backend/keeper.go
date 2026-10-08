@@ -7,10 +7,12 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -78,12 +80,16 @@ func writeState(st keeperState) {
 
 // spawnKeeper starts a detached keeper; it survives the server being restarted.
 // The returned channel is closed when the keeper exits.
-func spawnKeeper(name, dir string) (<-chan struct{}, error) {
+func spawnKeeper(name, dir string, resume bool) (<-chan struct{}, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(self, "keep", name, dir)
+	args := []string{"keep", name, dir}
+	if resume {
+		args = append(args, "--continue")
+	}
+	cmd := exec.Command(self, args...)
 	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // own session: launchd won't reap it with ours
 	if err := cmd.Start(); err != nil {
@@ -114,8 +120,18 @@ func cleanEnv() []string {
 	return append(env, "PATH="+path)
 }
 
-func keep(name, dir string) error {
+func keep(name, dir string, resume bool) error {
 	os.MkdirAll(stateDir, 0o755)
+	// At shutdown everything gets SIGTERM: remember that, so the session stays in desired.json.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
+	var signaled atomic.Bool
+	go func() {
+		for range sigs {
+			signaled.Store(true)
+		}
+	}()
+
 	logf, err := os.Create(logPath(name))
 	if err != nil {
 		return err
@@ -123,7 +139,11 @@ func keep(name, dir string) error {
 	defer logf.Close()
 
 	// zsh -c so ~/.zshenv puts claude and node on PATH; `script` gives claude the TTY it needs.
-	cmd := exec.Command("/bin/zsh", "-c", `exec script -q /dev/null claude --remote-control "$1"`, "zsh", name)
+	shell := `exec script -q /dev/null claude --remote-control "$1"`
+	if resume { // --continue with no earlier conversation just starts a new one
+		shell += " --continue"
+	}
+	cmd := exec.Command("/bin/zsh", "-c", shell, "zsh", name)
 	cmd.Dir = dir
 	cmd.Env = cleanEnv()
 	stdin, err := cmd.StdinPipe()
@@ -224,6 +244,12 @@ func keep(name, dir string) error {
 	}
 	err = cmd.Wait()
 	log.Printf("%s: exited: %v", name, err)
+	// Exited on its own (/exit), not because the Mac is shutting down: don't bring it back.
+	// The grace period covers shutdown, where claude may get its SIGTERM a moment before we do.
+	time.Sleep(3 * time.Second)
+	if !signaled.Load() {
+		removeDesired(name)
+	}
 	return nil
 }
 
@@ -259,11 +285,11 @@ func (t *tail) readable(n int) string {
 }
 
 func keepMain(args []string) {
-	if len(args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: claude-manager keep <name> <dir>")
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: claude-manager keep <name> <dir> [--continue]")
 		os.Exit(2)
 	}
-	if err := keep(args[0], args[1]); err != nil {
+	if err := keep(args[0], args[1], len(args) > 2 && args[2] == "--continue"); err != nil {
 		log.Fatal(err)
 	}
 }

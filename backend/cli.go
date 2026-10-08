@@ -22,9 +22,12 @@ const usageText = `hangar: Claude Code Remote Control sessions for the projects 
   hangar new <name>       create ~/Dev/<name> and start a session in it
   hangar start <name>     start a session in ~/Dev/<name>  (<name> may be a/b)
   hangar stop <name>      stop a session
+  hangar restart <name>  stop it and start it again, continuing the conversation
   hangar url <name>       print a session's claude.ai link
   hangar open <name>      open it in the browser
   hangar qr <name>        show its link as a QR code, for the phone
+  hangar restore         start the sessions that were running before a reboot (run at login)
+  hangar restore --list | --install
   hangar limits           subscription limits (from claude-monitor)
   hangar serve            HTTP API for the iOS app (run by homebase)
 `
@@ -58,6 +61,12 @@ func cliMain(cmd string, args []string) {
 			break
 		}
 		err = cmdStart(args[0], cmd == "new")
+	case "restart":
+		if len(args) != 1 {
+			err = fmt.Errorf("usage: hangar restart <name>")
+			break
+		}
+		err = cmdRestart(args[0])
 	case "stop", "url", "open", "qr":
 		if len(args) != 1 {
 			err = fmt.Errorf("usage: hangar %s <name>", cmd)
@@ -66,6 +75,8 @@ func cliMain(cmd string, args []string) {
 		err = cmdSession(cmd, args[0])
 	case "describe":
 		err = cmdDescribe(args)
+	case "restore":
+		err = cmdRestore(args)
 	case "limits", "usage":
 		err = cmdLimits()
 	case "help", "-h", "--help":
@@ -165,6 +176,28 @@ func findByName(name string) (Session, error) {
 		}
 	}
 	return Session{}, fmt.Errorf("no running session named %s (see `hangar ls`)", name)
+}
+
+// cmdRestart fixes a session whose link to the app went quiet: same folder, same conversation.
+func cmdRestart(name string) error {
+	s, err := findByName(name)
+	if err != nil {
+		return err
+	}
+	if s.Dir == "" || strings.HasPrefix(s.Dir, "/") {
+		return fmt.Errorf("%s isn't in a project folder under ~/Dev", s.Name)
+	}
+	if err := stopSession(s.PID); err != nil {
+		return err
+	}
+	time.Sleep(time.Second)
+	fmt.Fprintln(os.Stderr, dim.Render("Restarting "+s.Name+"…"))
+	ns, err := startSession(startRequest{Name: s.Name, Dir: s.Dir, Resume: true})
+	if err != nil {
+		return err
+	}
+	fmt.Println(green.Render("● ") + bold.Render(ns.Name) + " restarted  " + dim.Render(orDefault(ns.URL, ns.State)))
+	return nil
 }
 
 func cmdSession(cmd, name string) error {
