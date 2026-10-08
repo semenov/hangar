@@ -206,6 +206,15 @@ struct ContentView: View {
         }
         .disabled(store.busy.contains(p.name))
         .listRowBackground(Theme.card)
+        // Without swipe actions, a horizontal swipe on the row counts as a tap (start and open).
+        .swipeActions {
+            Button { start(p.name, open: false) } label: { Label("Start", systemImage: "play.fill") }
+                .tint(Theme.accent)
+            Button { editing = EditTarget(project: p.name, description: p.description) } label: {
+                Label("Description", systemImage: "pencil")
+            }
+            .tint(Theme.accentSoft)
+        }
         .contextMenu {
             Button { start(p.name, open: true) } label: { Label("Start and open", systemImage: "play.fill") }
             descriptionMenu(project: p.name, description: p.description)
