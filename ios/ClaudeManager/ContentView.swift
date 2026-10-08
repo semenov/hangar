@@ -186,15 +186,25 @@ struct ContentView: View {
         // Tapping the row starts and opens the session; the play button only starts it.
         Button { start(p.name, open: true) } label: {
             HStack(spacing: 12) {
-                Image(systemName: p.git ? "folder.fill.badge.gearshape" : "folder.fill")
+                Image(systemName: "folder.fill")
                     .foregroundStyle(Theme.secondary)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(p.name).foregroundStyle(Theme.text)
                     DescriptionLine(text: p.description, describing: store.describing.contains(p.name))
-                    Text(p.modified, format: .relative(presentation: .named))
-                        .font(.footnote)
-                        .foregroundStyle(Theme.secondary)
+                    HStack(spacing: 6) {
+                        Text(p.modified, format: .relative(presentation: .named))
+                            .font(.footnote)
+                            .foregroundStyle(Theme.secondary)
+                        if p.git {
+                            Text("git")
+                                .font(.caption2.weight(.semibold).monospaced())
+                                .foregroundStyle(Theme.accentSoft)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Theme.accentSoft.opacity(0.15), in: Capsule())
+                        }
+                    }
                 }
                 Spacer()
                 if store.busy.contains(p.name) {
