@@ -100,7 +100,9 @@ struct ContentView: View {
 
     private var filteredProjects: [Project] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return q.isEmpty ? store.idleProjects : store.idleProjects.filter { $0.name.lowercased().contains(q) }
+        return q.isEmpty ? store.idleProjects : store.idleProjects.filter {
+            $0.name.lowercased().contains(q) || ($0.description?.lowercased().contains(q) ?? false)
+        }
     }
 
     private func start(_ name: String, open: Bool) {
@@ -123,6 +125,12 @@ struct ContentView: View {
                     Text(s.name)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.text)
+                    if let d = s.description {
+                        Text(d)
+                            .font(.footnote)
+                            .foregroundStyle(Theme.text.opacity(0.75))
+                            .lineLimit(2)
+                    }
                     HStack(spacing: 6) {
                         if let sub = s.subtitle { Text(sub) }
                         TimelineView(.periodic(from: .now, by: 30)) { ctx in
@@ -177,6 +185,12 @@ struct ContentView: View {
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(p.name).foregroundStyle(Theme.text)
+                    if let d = p.description {
+                        Text(d)
+                            .font(.footnote)
+                            .foregroundStyle(Theme.text.opacity(0.75))
+                            .lineLimit(2)
+                    }
                     Text(p.modified, format: .relative(presentation: .named))
                         .font(.footnote)
                         .foregroundStyle(Theme.secondary)

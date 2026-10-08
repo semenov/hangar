@@ -37,11 +37,19 @@ hangar new <name>       create ~/Dev/<name> and start a session in it
 hangar start <name>     start a session in ~/Dev/<name>
 hangar stop <name>      stop a session
 hangar url|open|qr <name>
+hangar describe [-f] [name...]          one-line descriptions, written by Claude
+hangar describe --set <name> <text>     or by hand
 hangar limits           subscription limits (from claude-monitor)
 hangar serve            HTTP API for the iOS app (what homebase runs)
 ```
 
 Sessions it starts get the same detached keeper as ones started from the app.
+
+`hangar describe` sends each project's file list and the start of its README/CLAUDE.md/manifests to
+`claude -p --model haiku` (no tools, run outside the project, nothing saved) and keeps the answers in
+`~/Library/Application Support/claude-manager/descriptions.json`, not in the projects. Without
+names it does the projects that have none yet; `-f` redoes them, except ones set by hand. The app,
+`hangar` and `hangar projects` show them.
 
 ## Auth
 

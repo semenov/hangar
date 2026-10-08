@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +22,8 @@ type Session struct {
 	Waiting   string    `json:"waiting,omitempty"` // what a stuck session shows on screen
 	Managed   bool      `json:"managed"`           // started by claude-manager (vs. by hand)
 	Server    bool      `json:"server"`            // the `claude remote-control` server form
+
+	Description string `json:"description,omitempty"` // the project's, from `hangar describe`
 }
 
 type proc struct {
@@ -98,9 +99,11 @@ func findSessions() ([]Session, error) {
 		}
 	}
 	dirs := cwds(pids)
+	descs := loadDescriptions()
 	for i := range sessions {
 		s := &sessions[i]
 		s.Dir = relDir(dirs[s.PID])
+		s.Description = descs[s.Dir].Text
 		if s.Server {
 			continue
 		}
@@ -157,32 +160,31 @@ func urlFromLog(name string, pid int) string {
 	if err != nil {
 		return ""
 	}
-	u := lastSessionURL(data)
+	u := firstSessionURL(data)
 	if u != "" {
 		logURLCache[pid] = u
 	}
 	return u
 }
 
-var sessionIDRe = regexp.MustCompile(`session_[A-Za-z0-9]{10,}`)
+var sessionURLRe = regexp.MustCompile(`claude\.ai/code/(session_[A-Za-z0-9]{20,})`)
 
-func lastSessionURL(data []byte) string {
-	i := bytes.LastIndex(data, []byte("claude.ai/code/session_"))
-	if i < 0 {
+// firstSessionURL finds the link Claude Code prints when it registers. It's the first one: later
+// output is the conversation, which can mention other sessions' links.
+func firstSessionURL(data []byte) string {
+	m := sessionURLRe.FindSubmatch(data)
+	if m == nil {
 		return ""
 	}
-	id := sessionIDRe.Find(data[i:])
-	if id == nil {
-		return ""
-	}
-	return "https://claude.ai/code/" + string(id)
+	return "https://claude.ai/code/" + string(m[1])
 }
 
 // Project is a directory in ~/Dev.
 type Project struct {
-	Name     string    `json:"name"`
-	Modified time.Time `json:"modified"`
-	Git      bool      `json:"git"`
+	Name        string    `json:"name"`
+	Modified    time.Time `json:"modified"`
+	Git         bool      `json:"git"`
+	Description string    `json:"description,omitempty"`
 }
 
 func listProjects() ([]Project, error) {
@@ -191,6 +193,7 @@ func listProjects() ([]Project, error) {
 		return nil, err
 	}
 	var res []Project
+	descs := loadDescriptions()
 	for _, e := range entries {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
@@ -200,7 +203,8 @@ func listProjects() ([]Project, error) {
 			continue
 		}
 		_, gitErr := os.Stat(filepath.Join(devRoot, e.Name(), ".git"))
-		res = append(res, Project{Name: e.Name(), Modified: info.ModTime().Truncate(time.Second), Git: gitErr == nil})
+		res = append(res, Project{Name: e.Name(), Modified: info.ModTime().Truncate(time.Second), Git: gitErr == nil,
+			Description: descs[e.Name()].Text})
 	}
 	return res, nil
 }

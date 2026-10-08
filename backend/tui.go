@@ -420,7 +420,10 @@ func (m model) row(it item, selected bool) string {
 	w := max(40, m.width)
 	var line string
 	if s := it.session; s != nil {
-		dot, info := green.Render("●"), dim.Render(s.URL)
+		dot, info := green.Render("●"), s.Description
+		if info == "" {
+			info = dim.Render(s.URL)
+		}
 		switch {
 		case m.busy[s.Name] == "stopping":
 			dot, info = amber.Render("◌"), amber.Render("stopping…")
@@ -434,7 +437,7 @@ func (m model) row(it item, selected bool) string {
 		line = fmt.Sprintf("  %s %-26s %s %s", dot, short(s.Name, 26), dim.Render(fmt.Sprintf("%-10s", uptime(s.StartedAt))), info)
 	} else {
 		p := it.project
-		info := dim.Render(ago(p.Modified))
+		info := dim.Render(fmt.Sprintf("%-10s", ago(p.Modified))) + short(p.Description, max(10, w-42))
 		if m.busy[p.Name] == "starting" {
 			info = amber.Render("starting…")
 		}

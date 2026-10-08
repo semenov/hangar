@@ -10,6 +10,7 @@ struct Session: Codable, Equatable, Identifiable {
     let waiting: String?
     let managed: Bool
     let server: Bool
+    let description: String?
 
     var id: Int { pid }
     var link: URL? { url.flatMap(URL.init(string:)) }
@@ -24,6 +25,7 @@ struct Project: Codable, Equatable, Identifiable {
     let name: String
     let modified: Date
     let git: Bool
+    let description: String?
     var id: String { name }
 }
 

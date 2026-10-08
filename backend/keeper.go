@@ -185,7 +185,7 @@ func keep(name, dir string) error {
 
 			mu.Lock()
 			changed := false
-			if u := lastSessionURL(screen.text); u != "" && u != st.URL {
+			if u := firstSessionURL(screen.text); u != "" && st.URL == "" {
 				st.URL, st.State, st.Waiting = u, "ready", ""
 				changed = true
 			}

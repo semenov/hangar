@@ -65,6 +65,8 @@ func cliMain(cmd string, args []string) {
 			break
 		}
 		err = cmdSession(cmd, args[0])
+	case "describe":
+		err = cmdDescribe(args)
 	case "limits", "usage":
 		err = cmdLimits()
 	case "help", "-h", "--help":
@@ -130,7 +132,7 @@ func cmdProjects() error {
 		if running[p.Name] {
 			dot = green.Render("● ")
 		}
-		fmt.Printf("%s%-28s %s\n", dot, p.Name, dim.Render(ago(p.Modified)))
+		fmt.Printf("%s%-26s %s %s\n", dot, p.Name, dim.Render(fmt.Sprintf("%-9s", ago(p.Modified))), p.Description)
 	}
 	return nil
 }
