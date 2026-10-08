@@ -1,10 +1,10 @@
-// Renders the 1024x1024 app icon: a hangar at night, a plane silhouetted in its glowing doorway,
-// light spilling onto the ground. Run: swift tools/Icon.swift <out.png>
+// Renders the 1024x1024 app icon: a hangar at night, its doorway glowing, light spilling onto the
+// ground. Run: swift tools/Icon.swift <out.png>
 import AppKit
 import SwiftUI
 
 let canvas: CGFloat = 1024
-let ground: CGFloat = 690
+let ground: CGFloat = 700
 
 extension Color {
     init(hex: UInt32, opacity: Double = 1) {
@@ -146,14 +146,6 @@ struct Icon: View {
                 .opacity(0.9)
                 .mask(Door(width: doorW, height: doorH))
 
-            // The plane's shadow, thrown at the viewer through the light on the ground.
-            Spill(top: 150, bottom: 420)
-                .fill(LinearGradient(colors: [Color(hex: 0x050A16, opacity: 0.75), .clear],
-                                     startPoint: UnitPoint(x: 0.5, y: ground / canvas), endPoint: .bottom))
-                .blur(radius: 22)
-                .mask(Rectangle().frame(height: canvas - ground).frame(maxHeight: .infinity, alignment: .bottom))
-            Craft().position(x: canvas / 2, y: ground - 72)
-
             // Threshold.
             Capsule()
                 .fill(LinearGradient(colors: [.clear, glowWhite.opacity(0.9), .clear], startPoint: .leading, endPoint: .trailing))
@@ -162,41 +154,6 @@ struct Icon: View {
         }
         .frame(width: canvas, height: canvas)
         .clipped()
-    }
-}
-
-/// A small aircraft seen from the front, backlit: fuselage, wings, tail fin.
-struct Craft: View {
-    var body: some View {
-        ZStack {
-            Wings().frame(width: 250, height: 30).offset(y: 12)
-            Capsule().frame(width: 84, height: 8).offset(y: -30)             // tailplane
-            UnevenRoundedRectangle(topLeadingRadius: 7, bottomLeadingRadius: 0, bottomTrailingRadius: 0,
-                                   topTrailingRadius: 7)
-                .frame(width: 13, height: 46).offset(y: -46)                 // fin
-            Ellipse().frame(width: 66, height: 60)                           // fuselage
-            Capsule().frame(width: 26, height: 22).offset(x: -64, y: 28)     // engines
-            Capsule().frame(width: 26, height: 22).offset(x: 64, y: 28)
-            Capsule().frame(width: 6, height: 36).offset(y: 54)              // landing gear
-            Capsule().frame(width: 6, height: 26).offset(x: -34, y: 52)
-            Capsule().frame(width: 6, height: 26).offset(x: 34, y: 52)
-        }
-        .foregroundStyle(Color(hex: 0x0A1426))
-    }
-}
-
-/// Wings with a slight droop towards the tips.
-struct Wings: Shape {
-    func path(in r: CGRect) -> Path {
-        let t: CGFloat = r.height * 0.42
-        var p = Path()
-        p.move(to: CGPoint(x: r.minX, y: r.maxY - t * 0.5))
-        p.addQuadCurve(to: CGPoint(x: r.midX, y: r.minY), control: CGPoint(x: r.midX * 0.55, y: r.minY))
-        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.maxY - t * 0.5), control: CGPoint(x: r.midX * 1.45, y: r.minY))
-        p.addQuadCurve(to: CGPoint(x: r.midX, y: r.minY + t), control: CGPoint(x: r.midX * 1.45, y: r.minY + t))
-        p.addQuadCurve(to: CGPoint(x: r.minX, y: r.maxY - t * 0.5), control: CGPoint(x: r.midX * 0.55, y: r.minY + t))
-        p.closeSubpath()
-        return p.strokedPath(StrokeStyle(lineWidth: 6, lineJoin: .round)).union(p)
     }
 }
 
