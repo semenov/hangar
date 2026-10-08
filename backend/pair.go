@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -64,6 +65,9 @@ func cmdPair(args []string) error {
 	fmt.Println()
 	printQR(os.Stdout, link)
 	fmt.Println(dim.Render("  " + link))
+	if web := webPairLink(link); web != "" {
+		fmt.Println(dim.Render("  To send it to the phone instead: " + web))
+	}
 	fmt.Println(dim.Render("  The code works once, for 10 minutes."))
 	if len(args) > 0 && args[0] == "--no-wait" {
 		return nil
@@ -107,3 +111,15 @@ func cmdDevices(args []string) error {
 }
 
 func processAlive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+
+// webPairLink is an https link that opens the pairing link in the app, for sending to the phone in
+// a message (apps don't make hangar:// links tappable). The parameters go in the fragment, which
+// browsers don't send to the server.
+func webPairLink(link string) string {
+	base := strings.Replace(strings.Replace(conf().Relay, "wss://", "https://", 1), "ws://", "http://", 1)
+	q := strings.TrimPrefix(link, "hangar://pair?")
+	if base == "" || q == link {
+		return ""
+	}
+	return strings.TrimSuffix(base, "/") + "/pair#" + q
+}

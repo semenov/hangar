@@ -258,6 +258,7 @@ func main() {
 	})
 	mux.HandleFunc("GET /{$}", page(landingHTML))
 	mux.HandleFunc("GET /privacy", page(privacyHTML))
+	mux.HandleFunc("GET /pair", page(pairHTML))
 	log.Printf("hangar-relay on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }

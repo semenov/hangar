@@ -69,3 +69,19 @@ your Claude credentials.</p>
 <h2>Contact</h2>
 <p>Questions: <a href="https://github.com/semenov/hangar/issues">github.com/semenov/hangar/issues</a>.</p>
 </main></body></html>`
+
+// pairHTML opens hangar://pair?<fragment> in the app. The pairing parameters are in the fragment,
+// which browsers don't send, so the relay never sees the secret.
+const pairHTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Pair with Hangar</title>` + pageStyle + `</head>
+<body><main>
+<h1>Pair with Hangar</h1>
+<p id="msg">Opening the Hangar app…</p>
+<p><a id="open" href="#">Open in Hangar</a></p>
+<p class="small">No Hangar on this iPhone yet? Install it, then open this link again.</p>
+<script>
+  var q = location.hash.slice(1);
+  var link = "hangar://pair?" + q;
+  document.getElementById("open").href = link;
+  if (q) { location.href = link; } else { document.getElementById("msg").textContent = "This link is missing its pairing code."; }
+</script>
+</main></body></html>`
