@@ -1,0 +1,97 @@
+import Foundation
+
+struct Session: Codable, Equatable, Identifiable {
+    let name: String
+    let dir: String
+    let pid: Int
+    let startedAt: Date
+    let url: String?
+    let state: String // starting | waiting | ready
+    let waiting: String?
+    let managed: Bool
+    let server: Bool
+
+    var id: Int { pid }
+    var link: URL? { url.flatMap(URL.init(string:)) }
+    /// The directory when it doesn't just repeat the name.
+    var subtitle: String? {
+        if server { return "~/Dev · server" }
+        return dir == name ? nil : "~/Dev/\(dir)"
+    }
+}
+
+struct Project: Codable, Equatable, Identifiable {
+    let name: String
+    let modified: Date
+    let git: Bool
+    var id: String { name }
+}
+
+struct Overview: Codable, Equatable {
+    let sessions: [Session]
+    let projects: [Project]
+}
+
+/// Talks to the claude-manager backend on the Mac.
+enum API {
+    private static var defaults: UserDefaults { .standard }
+
+    static var publicURL: String {
+        get { defaults.string(forKey: "publicURL") ?? Secrets.publicServer }
+        set { defaults.set(newValue, forKey: "publicURL") }
+    }
+    static var token: String {
+        get { defaults.string(forKey: "token") ?? Secrets.homebaseToken }
+        set { defaults.set(newValue, forKey: "token") }
+    }
+    /// The backend's own token: homebase's proxy also serves it on the LAN, without its token.
+    static var managerToken: String {
+        get { defaults.string(forKey: "managerToken") ?? Secrets.managerToken }
+        set { defaults.set(newValue, forKey: "managerToken") }
+    }
+
+    private static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
+
+    static func overview() async throws -> Overview {
+        try await request("GET", "/api/overview")
+    }
+
+    /// Starts a session; the backend waits until it is registered, so this can take ~10 s.
+    static func start(name: String, create: Bool = false) async throws -> Session {
+        let body = try JSONSerialization.data(withJSONObject: ["name": name, "create": create])
+        return try await request("POST", "/api/sessions", body: body, timeout: 75)
+    }
+
+    static func stop(pid: Int) async throws {
+        let _: [String: Bool] = try await request("DELETE", "/api/sessions/\(pid)")
+    }
+
+    private static func request<T: Decodable>(_ method: String, _ path: String, body: Data? = nil,
+                                              timeout: TimeInterval = 20) async throws -> T {
+        let base = publicURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: base + path) else { throw URLError(.badURL) }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+        req.httpMethod = method
+        req.httpBody = body
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if body != nil {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        if !token.isEmpty {
+            req.setValue(token, forHTTPHeaderField: "X-Homebase-Token")
+        }
+        req.setValue(managerToken, forHTTPHeaderField: "X-Manager-Token")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        if let http = resp as? HTTPURLResponse, http.statusCode != 200 {
+            let msg = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
+            throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: msg ?? "HTTP \(http.statusCode)"])
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+}

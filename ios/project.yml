@@ -1,0 +1,38 @@
+name: ClaudeManager
+options:
+  bundleIdPrefix: ai.semenov
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+
+# DEVELOPMENT_TEAM lives here (gitignored); copy from Local.xcconfig.example.
+configFiles:
+  Debug: Local.xcconfig
+  Release: Local.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  ClaudeManager:
+    type: application
+    platform: iOS
+    sources:
+      - path: ClaudeManager
+        excludes:
+          - "*.example"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.semenov.claude-manager
+        PRODUCT_NAME: Claude Sessions
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Sessions
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
