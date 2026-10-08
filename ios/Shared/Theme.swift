@@ -3,12 +3,12 @@ import SwiftUI
 /// Night-blue palette with mint accents.
 enum Theme {
     static let accent = Color(red: 0.302, green: 0.851, blue: 0.702)     // mint
-    static let accentSoft = Color(red: 0.494, green: 0.773, blue: 0.976) // sky
+    static let accentSoft = Color(red: 0.333, green: 0.722, blue: 1.0)   // sky
     static let amber = Color(red: 0.976, green: 0.761, blue: 0.333)
     static let red = Color(red: 0.961, green: 0.408, blue: 0.439)
     static let text = Color(red: 0.906, green: 0.937, blue: 0.965)
-    static let bgTop = Color(red: 0.067, green: 0.098, blue: 0.161)
-    static let bgBottom = Color(red: 0.024, green: 0.035, blue: 0.063)
+    static let bgTop = Color(red: 0.118, green: 0.157, blue: 0.420)  // indigo, as in the icon
+    static let bgBottom = Color(red: 0.035, green: 0.051, blue: 0.137)
     static let card = Color.white.opacity(0.05)
     static let track = Color.white.opacity(0.08)
     static let secondary = text.opacity(0.55)
@@ -36,7 +36,7 @@ struct Background: View {
     var body: some View {
         ZStack {
             LinearGradient(colors: [Theme.bgTop, Theme.bgBottom], startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [Theme.accentSoft.opacity(0.18), .clear], center: .init(x: 0.5, y: 0.12),
+            RadialGradient(colors: [Theme.accentSoft.opacity(0.3), .clear], center: .init(x: 0.5, y: 0.12),
                            startRadius: 0, endRadius: 380)
         }
         .ignoresSafeArea()
