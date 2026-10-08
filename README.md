@@ -25,6 +25,24 @@ in the Claude app, stops them, starts sessions in existing projects in `~/Dev` a
   Apple ID signed in to Xcode), so the widget uses the server and tokens from `Secrets.swift`,
   not ones changed in the app's Settings. `swift tools/Icon.swift <out.png>` renders the icon (SwiftUI).
 
+## hangar (command line)
+
+`make install` puts the same binary in `~/.local/bin/hangar`:
+
+```
+hangar                  interactive list: enter open/start · space QR · x stop · n new · / filter
+hangar ls [--json]      running sessions
+hangar projects         projects in ~/Dev
+hangar new <name>       create ~/Dev/<name> and start a session in it
+hangar start <name>     start a session in ~/Dev/<name>
+hangar stop <name>      stop a session
+hangar url|open|qr <name>
+hangar limits           subscription limits (from claude-monitor)
+hangar serve            HTTP API for the iOS app (what homebase runs)
+```
+
+Sessions it starts get the same detached keeper as ones started from the app.
+
 ## Auth
 
 Two tokens. homebase's private share checks `X-Homebase-Token` on the public URL, but its proxy

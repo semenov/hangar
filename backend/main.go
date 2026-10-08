@@ -243,10 +243,28 @@ func requireToken(token string, next http.Handler) http.Handler {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "keep" {
-		keepMain(os.Args[2:])
-		return
+	cmd, args := "", []string(nil)
+	if len(os.Args) > 1 {
+		cmd, args = os.Args[1], os.Args[2:]
 	}
+	switch cmd {
+	case "keep":
+		keepMain(args)
+	case "serve":
+		serve()
+	default:
+		cliMain(cmd, args)
+	}
+}
+
+// Limits come from claude-monitor (~/Dev/claude-monitor), which runs `claude -p /usage`.
+var (
+	usageURL    = envOr("USAGE_URL", "http://127.0.0.1:4001/api/usage")
+	usageClient = &http.Client{Timeout: 75 * time.Second}
+)
+
+// serve runs the HTTP API for the iOS app.
+func serve() {
 	os.MkdirAll(stateDir, 0o755)
 	port := envOr("PORT", "4110")
 	token, err := apiToken()
@@ -283,9 +301,6 @@ func main() {
 		}
 		writeJSON(w, map[string]bool{"ok": err == nil}, err)
 	})
-	// Limits come from claude-monitor (~/Dev/claude-monitor), which runs `claude -p /usage`.
-	usageURL := envOr("USAGE_URL", "http://127.0.0.1:4001/api/usage")
-	usageClient := &http.Client{Timeout: 75 * time.Second}
 	mux.HandleFunc("GET /api/usage", func(w http.ResponseWriter, r *http.Request) {
 		u := usageURL
 		if r.URL.Query().Get("refresh") == "1" {
