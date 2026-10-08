@@ -8,10 +8,32 @@ struct ContentView: View {
     @State private var search = ""
     @State private var toStop: Session?
     @State private var editing: EditTarget?
+    @State private var pairLink: PairLinkItem?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
     var body: some View {
+        Group {
+            if store.current == nil {
+                WelcomeView(store: store)
+            } else {
+                main
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onOpenURL { url in
+            if let l = PairLink(url.absoluteString) { pairLink = PairLinkItem(link: l) }
+        }
+        .sheet(item: $pairLink) { item in PairView(store: store, link: item.link) }
+        #if DEBUG
+        // Tests: `simctl launch … -pairLink 'hangar://pair?…'` (opening the URL asks for confirmation).
+        .onAppear {
+            if let s = UserDefaults.standard.string(forKey: "pairLink"), let l = PairLink(s) { pairLink = PairLinkItem(link: l) }
+        }
+        #endif
+    }
+
+    private var main: some View {
         NavigationStack {
             ZStack {
                 Background()
@@ -22,6 +44,23 @@ struct ContentView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showSettings = true } label: { Image(systemName: "gearshape") }
                 }
+                if store.macs.count > 1 {
+                    ToolbarItem(placement: .principal) {
+                        Menu {
+                            ForEach(store.macs) { mac in
+                                Button { store.select(mac) } label: {
+                                    if mac.id == store.current?.id { Label(mac.name, systemImage: "checkmark") } else { Text(mac.name) }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(store.current?.name ?? "").font(.subheadline.weight(.semibold))
+                                Image(systemName: "chevron.down").font(.caption2.weight(.bold))
+                            }
+                            .foregroundStyle(Theme.text)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showNew = true } label: { Image(systemName: "plus") }
                 }
@@ -29,7 +68,6 @@ struct ContentView: View {
             .searchable(text: $search, prompt: "Projects")
         }
         .tint(Theme.accentSoft)
-        .preferredColorScheme(.dark)
         .sheet(isPresented: $showSettings) { SettingsView(store: store) }
         .sheet(isPresented: $showNew) {
             NewProjectView(store: store) { session in
@@ -254,7 +292,7 @@ struct ContentView: View {
                 .font(.headline)
                 .foregroundStyle(Theme.amber)
             Text(error).font(.footnote).foregroundStyle(Theme.secondary)
-            Text("Server: \(store.publicURL)").font(.footnote.monospaced()).foregroundStyle(Theme.secondary)
+            Text(store.current?.name ?? "").font(.footnote).foregroundStyle(Theme.secondary)
         }
         .listRowBackground(Theme.card)
     }
@@ -265,6 +303,11 @@ struct ContentView: View {
         if m < 24 * 60 { return "\(m / 60)h \(m % 60)m" }
         return "\(m / (24 * 60))d \(m / 60 % 24)h"
     }
+}
+
+struct PairLinkItem: Identifiable {
+    let link: PairLink
+    var id: String { link.macID }
 }
 
 struct EditTarget: Identifiable {

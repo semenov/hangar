@@ -3,7 +3,7 @@
 BIN ?= $(HOME)/.local/bin/hangar
 
 install:
-	cd backend && go build -o $(BIN).new . && mv -f $(BIN).new $(BIN)
+	cd backend && go build -ldflags "-X main.version=$$(git describe --tags --always --dirty)" -o $(BIN).new . && mv -f $(BIN).new $(BIN)
 	@echo "installed $(BIN)"
 
 .PHONY: install

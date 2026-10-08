@@ -28,6 +28,12 @@ targets:
           - "*.example"
     dependencies:
       - target: SessionsWidget
+    info:
+      path: ClaudeManager/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: ai.semenov.hangar
+            CFBundleURLSchemes: [hangar]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.semenov.hangar
@@ -37,6 +43,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Hangar
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: Scan the code `hangar pair` shows on your Mac.
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
 

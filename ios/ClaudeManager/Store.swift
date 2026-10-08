@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 import WidgetKit
 
 @MainActor
@@ -16,17 +17,49 @@ final class Store {
     /// Projects whose description Claude is writing right now.
     var describing: Set<String> = []
 
-    var publicURL: String {
-        get { API.publicURL }
-        set { API.publicURL = newValue }
+    /// The Macs this phone knows and the one shown; changes go through select/pair/unpair.
+    private(set) var macs: [PairedMac] = Macs.all
+    private(set) var current: PairedMac? = Macs.current
+
+    func select(_ mac: PairedMac) {
+        Macs.select(mac.id)
+        reloadMacs()
     }
-    var token: String {
-        get { API.token }
-        set { API.token = newValue }
+
+    func pair(_ link: PairLink) async throws {
+        _ = try await RelayConnection.pair(link, phoneName: UIDevice.current.name)
+        reloadMacs()
     }
-    var managerToken: String {
-        get { API.managerToken }
-        set { API.managerToken = newValue }
+
+    func addDirect(name: String, url: String, homebaseToken: String, managerToken: String) {
+        Macs.add(PairedMac(id: "direct-" + UUID().uuidString, name: name.isEmpty ? "My Mac" : name, kind: .direct,
+                           url: url, homebaseToken: homebaseToken, managerToken: managerToken))
+        reloadMacs()
+    }
+
+    func startDemo() {
+        Macs.add(.demo)
+        reloadMacs()
+    }
+
+    func unpair(_ mac: PairedMac) async {
+        await API.unpair(mac)
+        reloadMacs()
+    }
+
+    private func reloadMacs() {
+        let old = current?.id
+        macs = Macs.all
+        current = Macs.current
+        if current?.id != old {
+            overview = API.cachedOverview
+            usage = API.cachedUsage
+            error = nil
+            Task {
+                await refresh()
+                await refreshUsage()
+            }
+        }
     }
 
     var sessions: [Session] { overview?.sessions ?? [] }
@@ -35,7 +68,7 @@ final class Store {
     var idleProjects: [Project] { (overview?.projects ?? []).filter { !running.contains($0.name) } }
 
     func refresh() async {
-        guard !isLoading else { return }
+        guard !isLoading, current != nil else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -50,6 +83,7 @@ final class Store {
     }
 
     func refreshUsage(force: Bool = false) async {
+        guard current != nil else { return }
         do {
             let fresh = try await API.usage(force: force)
             if fresh.limits != usage?.limits {

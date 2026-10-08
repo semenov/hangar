@@ -315,6 +315,17 @@ func (m *macMux) serveRequest(ch uint32, pc *phoneChannel, plain []byte) {
 		m.closeChan(ch, "not paired")
 		return
 	}
+	if req.Path == "/api/unpair" { // the phone removed this Mac: forget it here too
+		d := findDevice(pc.phoneKey)
+		revokeDevice(d.ID)
+		log.Printf("relay: %s unpaired itself", d.Name)
+		resp, _ := json.Marshal(rpcResponse{ID: req.ID, Status: 200, Body: json.RawMessage(`{"ok":true}`)})
+		pc.mu.Lock()
+		m.write(ch, frameData, pc.sc.seal(resp))
+		pc.mu.Unlock()
+		m.closeChan(ch, "")
+		return
+	}
 	if !strings.HasPrefix(req.Path, "/api/") {
 		req.Path = "/api/" + strings.TrimPrefix(req.Path, "/")
 	}
