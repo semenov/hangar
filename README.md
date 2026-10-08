@@ -23,7 +23,7 @@ in the Claude app, stops them, starts sessions in existing projects in `~/Dev` a
   (home screen small/medium, lock screen circular/rectangular/inline). `ios/Shared/`: models,
   API client, theme. There is no App Group (it needs an explicit provisioning profile, i.e. an
   Apple ID signed in to Xcode), so the widget uses the server and tokens from `Secrets.swift`,
-  not ones changed in the app's Settings. `tools/make_icon.py` renders the icon.
+  not ones changed in the app's Settings. `swift tools/Icon.swift <out.png>` renders the icon (SwiftUI).
 
 ## Auth
 
