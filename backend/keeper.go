@@ -77,19 +77,21 @@ func writeState(st keeperState) {
 }
 
 // spawnKeeper starts a detached keeper; it survives the server being restarted.
-func spawnKeeper(name, dir string) error {
+// The returned channel is closed when the keeper exits.
+func spawnKeeper(name, dir string) (<-chan struct{}, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cmd := exec.Command(self, "keep", name, dir)
 	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // own session: launchd won't reap it with ours
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
-	go cmd.Wait()
-	return nil
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+	return done, nil
 }
 
 // cleanEnv drops the markers of the Claude session this may have been started from: with
@@ -101,9 +103,15 @@ func cleanEnv() []string {
 		if k == "CLAUDECODE" || k == "AI_AGENT" || k == "CLAUDE_PID" || k == "CLAUDE_EFFORT" || strings.HasPrefix(k, "CLAUDE_CODE_") {
 			continue
 		}
+		if k == "PATH" {
+			continue
+		}
 		env = append(env, kv)
 	}
-	return env
+	// launchd (homebase) gives a bare PATH; claude lives in ~/.local/bin. ~/.zshenv adds node.
+	path := filepath.Join(homeDir, ".local", "bin") + ":/opt/homebrew/bin:/opt/homebrew/sbin:" +
+		envOr("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+	return append(env, "PATH="+path)
 }
 
 func keep(name, dir string) error {

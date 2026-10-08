@@ -142,14 +142,19 @@ func startSession(req startRequest) (Session, error) {
 	}
 
 	os.Remove(statePath(req.Name))
-	if err := spawnKeeper(req.Name, dir); err != nil {
+	exited, err := spawnKeeper(req.Name, dir)
+	if err != nil {
 		return Session{}, err
 	}
 
 	// Wait until the session is registered (or clearly stuck) so the app can open it right away.
 	deadline := time.Now().Add(40 * time.Second)
 	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case <-exited:
+			return Session{}, apiError{500, "the session exited right away: " + logTail(req.Name)}
+		case <-time.After(500 * time.Millisecond):
+		}
 		st, ok := readState(req.Name)
 		if !ok || st.ClaudePID == 0 {
 			continue
@@ -163,6 +168,17 @@ func startSession(req startRequest) (Session, error) {
 		Name: req.Name, Dir: relDir(dir), PID: st.ClaudePID, StartedAt: st.StartedAt,
 		URL: st.URL, State: orDefault(st.State, "starting"), Waiting: st.Waiting, Managed: true,
 	}, nil
+}
+
+// logTail is the end of a session's log as plain text, for error messages.
+func logTail(name string) string {
+	data, _ := os.ReadFile(logPath(name))
+	if len(data) > 64<<10 {
+		data = data[len(data)-64<<10:]
+	}
+	var t tail
+	t.add(data)
+	return orDefault(t.readable(300), "no output")
 }
 
 func orDefault(s, def string) string {
