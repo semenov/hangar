@@ -87,7 +87,7 @@ func loadOverview() tea.Msg {
 
 // Limits are fetched on start and on `r` only: each fetch runs `claude -p /usage`.
 func loadUsage() tea.Msg {
-	u, err := fetchUsage()
+	u, err := fetchUsage(false)
 	if err != nil {
 		return nil // limits are optional; claude-monitor may not be running
 	}

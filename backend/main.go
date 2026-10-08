@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -24,7 +23,7 @@ import (
 
 var (
 	homeDir, _ = os.UserHomeDir()
-	devRoot    = envOr("DEV_ROOT", filepath.Join(homeDir, "Dev"))
+	devRoot    = envOr("DEV_ROOT", conf().ProjectsDir)
 	stateDir   = filepath.Join(homeDir, "Library", "Application Support", "claude-manager")
 )
 
@@ -241,6 +240,12 @@ func requireToken(token string, next http.Handler) http.Handler {
 	})
 }
 
+// version is set at build time (-ldflags "-X main.version=..."); apiVersion changes when the app
+// and the server need to agree on something new.
+var version = "dev"
+
+const apiVersion = 1
+
 func main() {
 	cmd, args := "", []string(nil)
 	if len(os.Args) > 1 {
@@ -256,22 +261,39 @@ func main() {
 	}
 }
 
-// Limits come from claude-monitor (~/Dev/claude-monitor), which runs `claude -p /usage`.
-var (
-	usageURL    = envOr("USAGE_URL", "http://127.0.0.1:4001/api/usage")
-	usageClient = &http.Client{Timeout: 75 * time.Second}
-)
-
-// serve runs the HTTP API for the iOS app.
+// serve runs the API for the iOS app: through the relay (end-to-end encrypted, for paired phones)
+// and, when $PORT is set (homebase, Tailscale setups), as plain HTTP on 127.0.0.1 with a token.
 func serve() {
 	os.MkdirAll(stateDir, 0o755)
-	port := envOr("PORT", "4110")
+	mux := apiMux()
+	if _, err := exec.LookPath("lsof"); err != nil {
+		log.Printf("warning: lsof not found, session directories will be empty")
+	}
+	log.Printf("hangar %s, projects in %s", version, devRoot)
+	if conf().Relay != "" {
+		go runRelay(conf().Relay, mux)
+	}
+	port := os.Getenv("PORT")
+	if port == "" {
+		select {} // relay only
+	}
 	token, err := apiToken()
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("listening on 127.0.0.1:%s", port)
+	// Loopback only: this starts processes on the Mac, so it is reachable only through a
+	// token-checking proxy (homebase's private share) or from the Mac itself.
+	log.Fatal(http.ListenAndServe("127.0.0.1:"+port, requireToken(token, mux)))
+}
 
+// apiMux is the API, without authentication: the HTTP listener wraps it in a token check, and the
+// relay only reaches it from paired phones.
+func apiMux() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"version": version, "api": apiVersion, "mac": conf().MacName}, nil)
+	})
 	mux.HandleFunc("GET /api/overview", func(w http.ResponseWriter, r *http.Request) {
 		o, err := getOverview()
 		writeJSON(w, o, err)
@@ -301,19 +323,8 @@ func serve() {
 		writeJSON(w, map[string]bool{"ok": err == nil}, err)
 	})
 	mux.HandleFunc("GET /api/usage", func(w http.ResponseWriter, r *http.Request) {
-		u := usageURL
-		if r.URL.Query().Get("refresh") == "1" {
-			u += "?refresh=1"
-		}
-		resp, err := usageClient.Get(u)
-		if err != nil {
-			writeJSON(w, nil, apiError{502, "claude-monitor: " + err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		u, err := fetchUsage(r.URL.Query().Get("refresh") == "1")
+		writeJSON(w, u, err)
 	})
 	// Descriptions: PUT sets one by hand ("" clears it), POST .../describe asks Claude for one.
 	mux.HandleFunc("PUT /api/projects/{name...}", func(w http.ResponseWriter, r *http.Request) {
@@ -376,12 +387,5 @@ func serve() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))
 	})
-
-	if _, err := exec.LookPath("lsof"); err != nil {
-		log.Printf("warning: lsof not found, session directories will be empty")
-	}
-	log.Printf("listening on :%s, projects in %s", port, devRoot)
-	// Loopback only: this starts processes on the Mac, so it is reachable only through homebase's
-	// private share (token-checked) or from the Mac itself.
-	log.Fatal(http.ListenAndServe("127.0.0.1:"+port, requireToken(token, mux)))
+	return mux
 }

@@ -1,0 +1,8 @@
+# Settings for homebase: run `homebase` here to start the dev server
+# (it gets its port in $PORT), `homebase deploy` to deploy. https://github.com/semenov/homebase
+
+name = "hangar"
+
+[deploy]
+  server = "root@thor.semenov.ai"
+  health = "/healthz"

@@ -56,6 +56,14 @@ var dialogs = []dialog{
 	{"mcp servers", "foundinthisproject", []string{up, "\r"}},
 }
 
+// dialogAllowed: what the user agreed to in `hangar setup`.
+func dialogAllowed(d dialog) bool {
+	if d.name == "remote-control consent" {
+		return conf().AcceptRemoteControl
+	}
+	return conf().AutoTrust
+}
+
 func statePath(name string) string { return filepath.Join(stateDir, name+".json") }
 func logPath(name string) string {
 	return filepath.Join(homeDir, "Library", "Logs", "claude-rc-"+name+".log")
@@ -212,6 +220,9 @@ func keep(name, dir string, resume bool) error {
 			if st.URL == "" && time.Since(lastAnswer) > 2*time.Second {
 				c := strings.ToLower(screen.compact())
 				for _, d := range dialogs {
+					if !dialogAllowed(d) {
+						continue // left for the user; the session shows as "waiting" with the screen text
+					}
 					if strings.Contains(c, d.match) {
 						log.Printf("%s: answering %s", name, d.name)
 						time.Sleep(500 * time.Millisecond) // let the dialog finish drawing

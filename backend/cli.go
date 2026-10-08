@@ -14,7 +14,11 @@ import (
 	"golang.org/x/term"
 )
 
-const usageText = `hangar: Claude Code Remote Control sessions for the projects in ~/Dev
+const usageText = `hangar: Claude Code Remote Control sessions for your projects, from the terminal and the iPhone app
+
+  hangar setup           set up this Mac and pair the iPhone app (run this first)
+  hangar pair            QR code to pair another phone
+  hangar devices [revoke <name>]   paired phones
 
   hangar                  interactive list (start, stop, open, new project)
   hangar ls [--json]      running sessions
@@ -78,6 +82,14 @@ func cliMain(cmd string, args []string) {
 		err = cmdDescribe(args)
 	case "rename", "mv":
 		err = cmdRename(args)
+	case "pair":
+		err = cmdPair(args)
+	case "devices":
+		err = cmdDevices(args)
+	case "setup":
+		err = cmdSetup(args)
+	case "version", "--version":
+		fmt.Println("hangar " + version)
 	case "restore":
 		err = cmdRestore(args)
 	case "limits", "usage":
@@ -238,28 +250,8 @@ func printQR(w io.Writer, url string) {
 	})
 }
 
-// Usage mirrors claude-monitor's /api/usage.
-type Usage struct {
-	Limits []struct {
-		ID       string     `json:"id"`
-		Label    string     `json:"label"`
-		Percent  float64    `json:"percent"`
-		ResetsAt *time.Time `json:"resets_at"`
-	} `json:"limits"`
-}
-
-func fetchUsage() (Usage, error) {
-	var u Usage
-	resp, err := usageClient.Get(usageURL)
-	if err != nil {
-		return u, fmt.Errorf("claude-monitor: %w", err)
-	}
-	defer resp.Body.Close()
-	return u, json.NewDecoder(resp.Body).Decode(&u)
-}
-
 func cmdLimits() error {
-	u, err := fetchUsage()
+	u, err := fetchUsage(false)
 	if err != nil {
 		return err
 	}

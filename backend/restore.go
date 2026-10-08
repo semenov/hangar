@@ -157,13 +157,7 @@ func cmdRestore(args []string) error {
 // writeLaunchAgent writes a LaunchAgent that runs `hangar <args...>`; schedule is extra plist XML
 // (RunAtLoad, StartCalendarInterval, ...).
 func writeLaunchAgent(label, logName, schedule string, args ...string) (string, error) {
-	self, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	if p, err := filepath.EvalSymlinks(self); err == nil {
-		self = p
-	}
+	self := stableExecutable()
 	argXML := "\t\t<string>" + self + "</string>\n"
 	for _, a := range args {
 		argXML += "\t\t<string>" + a + "</string>\n"
