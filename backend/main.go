@@ -83,10 +83,11 @@ func getOverview() (overview, error) {
 }
 
 type startRequest struct {
-	Name   string `json:"name"`   // session name; defaults to the last component of dir
-	Dir    string `json:"dir"`    // relative to ~/Dev; defaults to name
-	Create bool   `json:"create"` // create the directory (new project)
-	Resume bool   `json:"-"`      // continue the directory's last conversation (restore after reboot)
+	Name    string `json:"name"`   // session name; defaults to the last component of dir
+	Dir     string `json:"dir"`    // relative to ~/Dev; defaults to name
+	Create  bool   `json:"create"` // create the directory (new project)
+	Resume  bool   `json:"-"`      // continue the directory's last conversation (restore after reboot)
+	Retitle bool   `json:"-"`      // /rename the conversation to the session name once it's up
 }
 
 var startMu sync.Mutex
@@ -136,7 +137,7 @@ func startSession(req startRequest) (Session, error) {
 	}
 
 	os.Remove(statePath(req.Name))
-	exited, err := spawnKeeper(req.Name, dir, req.Resume)
+	exited, err := spawnKeeper(req.Name, dir, req.Resume, req.Retitle)
 	if err != nil {
 		return Session{}, err
 	}

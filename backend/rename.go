@@ -12,6 +12,8 @@ import (
 // Renaming a project renames its folder and its session together (they share the name), and
 // carries over what hangar and Claude Code keep by path: the description, the restore entry and
 // Claude's transcripts, so a running session comes back under the new name with --continue.
+// Remote Control may then reattach to the same claude.ai session, which keeps its old title
+// (--name doesn't change it), so the keeper also types /rename into it.
 
 var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9-]`)
 
@@ -90,7 +92,7 @@ func renameProject(from, to string) (renameResult, error) {
 
 	res := renameResult{Project: newRel}
 	if running != nil {
-		s, err := startSession(startRequest{Name: to, Dir: newRel, Resume: true})
+		s, err := startSession(startRequest{Name: to, Dir: newRel, Resume: true, Retitle: true})
 		if err != nil {
 			return res, fmt.Errorf("renamed, but the session didn't start again: %w", err)
 		}

@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -95,7 +96,7 @@ func writeState(st keeperState) {
 
 // spawnKeeper starts a detached keeper; it survives the server being restarted.
 // The returned channel is closed when the keeper exits.
-func spawnKeeper(name, dir string, resume bool) (<-chan struct{}, error) {
+func spawnKeeper(name, dir string, resume, retitle bool) (<-chan struct{}, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -103,6 +104,9 @@ func spawnKeeper(name, dir string, resume bool) (<-chan struct{}, error) {
 	args := []string{"keep", name, dir}
 	if resume {
 		args = append(args, "--continue")
+	}
+	if retitle {
+		args = append(args, "--retitle")
 	}
 	cmd := exec.Command(self, args...)
 	cmd.Dir = dir
@@ -135,7 +139,7 @@ func cleanEnv() []string {
 	return append(env, "PATH="+path)
 }
 
-func keep(name, dir string, resume bool) error {
+func keep(name, dir string, resume, retitle bool) error {
 	os.MkdirAll(stateDir, 0o755)
 	// At shutdown everything gets SIGTERM: remember that, so the session stays in desired.json.
 	sigs := make(chan os.Signal, 1)
@@ -237,6 +241,15 @@ func keep(name, dir string, resume bool) error {
 				st.URL, st.State, st.Waiting = u, "ready", ""
 				screen.reset() // what follows is the session; the startup screen is done with
 				changed = true
+				if retitle {
+					go func() {
+						time.Sleep(2 * time.Second) // let the prompt come up
+						log.Printf("%s: /rename %s", name, name)
+						io.WriteString(stdin, "/rename "+name)
+						time.Sleep(400 * time.Millisecond)
+						io.WriteString(stdin, "\r")
+					}()
+				}
 			}
 			if st.URL != "" && st.State != "disconnected" {
 				if m := disconnectedRe.FindStringSubmatch(screen.readable(4000)); m != nil {
@@ -337,10 +350,10 @@ func (t *tail) readable(n int) string {
 
 func keepMain(args []string) {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: claude-manager keep <name> <dir> [--continue]")
+		fmt.Fprintln(os.Stderr, "usage: claude-manager keep <name> <dir> [--continue] [--retitle]")
 		os.Exit(2)
 	}
-	if err := keep(args[0], args[1], len(args) > 2 && args[2] == "--continue"); err != nil {
+	if err := keep(args[0], args[1], slices.Contains(args[2:], "--continue"), slices.Contains(args[2:], "--retitle")); err != nil {
 		log.Fatal(err)
 	}
 }
