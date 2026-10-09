@@ -23,8 +23,9 @@ struct ProjectEditor: View {
     private var nameValid: Bool {
         !newName.isEmpty && newName.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil
     }
+    // Not while saving: the list refreshes during a rename and already has the folder's new name.
     private var nameTaken: Bool {
-        newName != currentName && (store.overview?.projects.contains { $0.name == newName } ?? false)
+        !saving && newName != currentName && (store.overview?.projects.contains { $0.name == newName } ?? false)
     }
     private var changed: Bool { newName != currentName || trimmed != original }
 
