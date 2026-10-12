@@ -207,10 +207,39 @@ func keep(name, dir string, resume, retitle bool) error {
 	}()
 
 	var screen tail // guarded by mu
-	// A session that prints nothing at all is stuck too; the read loop below wouldn't notice.
+	// markReady (with mu held) sets the session ready once its link shows up, on the screen or in
+	// Claude Code's session file, and reports whether the state changed.
+	markReady := func() bool {
+		if st.State == "ready" || st.State == "disconnected" {
+			return false
+		}
+		if st.URL == "" {
+			st.URL = orDefault(bridgeURL(st.ClaudePID), firstSessionURL(screen.text))
+		}
+		if st.URL == "" {
+			return false
+		}
+		st.State, st.Waiting = "ready", ""
+		screen.reset() // what follows is the session; the startup screen is done with
+		if retitle {
+			go func() {
+				time.Sleep(2 * time.Second) // let the prompt come up
+				log.Printf("%s: /rename %s", name, name)
+				io.WriteString(stdin, "/rename "+name)
+				time.Sleep(400 * time.Millisecond)
+				io.WriteString(stdin, "\r")
+			}()
+		}
+		return true
+	}
+	// A session that prints nothing at all is stuck too; the read loop below wouldn't notice. Nor
+	// would it notice a link that only reaches the session file after the last output.
 	go func() {
 		for range time.Tick(5 * time.Second) {
 			mu.Lock()
+			if markReady() {
+				writeState(st)
+			}
 			if st.State == "starting" && time.Since(st.StartedAt) > 30*time.Second {
 				st.State, st.Waiting = "waiting", orDefault(screen.readable(400), "no output from claude")
 				writeState(st)
@@ -237,19 +266,8 @@ func keep(name, dir string, resume, retitle bool) error {
 			mu.Lock()
 			screen.add(chunk)
 			changed := false
-			if u := firstSessionURL(screen.text); u != "" && st.URL == "" {
-				st.URL, st.State, st.Waiting = u, "ready", ""
-				screen.reset() // what follows is the session; the startup screen is done with
+			if markReady() {
 				changed = true
-				if retitle {
-					go func() {
-						time.Sleep(2 * time.Second) // let the prompt come up
-						log.Printf("%s: /rename %s", name, name)
-						io.WriteString(stdin, "/rename "+name)
-						time.Sleep(400 * time.Millisecond)
-						io.WriteString(stdin, "\r")
-					}()
-				}
 			}
 			if st.URL != "" && st.State != "disconnected" {
 				if m := disconnectedRe.FindStringSubmatch(screen.readable(4000)); m != nil {

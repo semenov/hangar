@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -173,6 +174,20 @@ var sessionURLRe = regexp.MustCompile(`claude\.ai/code/(session_[A-Za-z0-9]{20,}
 
 // firstSessionURL finds the link Claude Code prints when it registers. It's the first one: later
 // output is the conversation, which can mention other sessions' links.
+// bridgeURL is the session's link as Claude Code records it in ~/.claude/sessions/<pid>.json.
+// The screen isn't enough: the TUI redraws only the cells that changed, so after --continue the
+// link it prints can lack letters that were already on screen.
+func bridgeURL(pid int) string {
+	var s struct {
+		BridgeSessionID string `json:"bridgeSessionId"`
+	}
+	data, err := os.ReadFile(filepath.Join(homeDir, ".claude", "sessions", strconv.Itoa(pid)+".json"))
+	if err != nil || json.Unmarshal(data, &s) != nil || !strings.HasPrefix(s.BridgeSessionID, "session_") {
+		return ""
+	}
+	return "https://claude.ai/code/" + s.BridgeSessionID
+}
+
 func firstSessionURL(data []byte) string {
 	m := sessionURLRe.FindSubmatch(data)
 	if m == nil {
