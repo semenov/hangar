@@ -24,7 +24,7 @@ actor RelayConnection {
     }
 
     enum RelayError: LocalizedError {
-        case offline, notPaired, refused(String), protocolError(String), timeout
+        case offline, notPaired, refused(String), protocolError(String), timeout, connectionLost
 
         var errorDescription: String? {
             switch self {
@@ -33,6 +33,7 @@ actor RelayConnection {
             case .refused(let why): why
             case .protocolError(let why): "Connection error: \(why)"
             case .timeout: "The Mac didn't answer in time."
+            case .connectionLost: "Lost the connection to the Mac."
             }
         }
     }
@@ -56,7 +57,41 @@ actor RelayConnection {
 
     // MARK: Requests
 
+    /// A GET that fails on a dropped connection is sent once more over a new one: the relay's
+    /// connections drop when its proxy reloads, and iOS kills them while the app is in the
+    /// background. Other methods aren't repeated, since they may have reached the Mac.
     func request(_ method: String, _ path: String, body: Data?, timeout: TimeInterval) async throws -> (Int, Data) {
+        do {
+            return try await send(method, path, body: body, timeout: timeout)
+        } catch where Self.isConnectionError(error) {
+            guard method == "GET" else { throw Self.plain(error) }
+            if let t = task { // likely dead if it timed out; start over
+                t.cancel(with: .goingAway, reason: nil)
+                reset(RelayError.connectionLost, for: t)
+            }
+            if case RelayError.offline = error { try? await Task.sleep(for: .seconds(2)) } // the Mac reconnects
+            do {
+                return try await send(method, path, body: body, timeout: timeout)
+            } catch {
+                throw Self.plain(error)
+            }
+        }
+    }
+
+    private static func isConnectionError(_ error: Error) -> Bool {
+        switch error {
+        case RelayError.timeout, RelayError.offline, RelayError.connectionLost, RelayError.protocolError: true
+        case is URLError: true
+        default: (error as NSError).domain == NSPOSIXErrorDomain
+        }
+    }
+
+    /// iOS's own wording ("Software caused connection abort") means nothing to the user.
+    private static func plain(_ error: Error) -> Error {
+        error is URLError || (error as NSError).domain == NSPOSIXErrorDomain ? RelayError.connectionLost : error
+    }
+
+    private func send(_ method: String, _ path: String, body: Data?, timeout: TimeInterval) async throws -> (Int, Data) {
         try await ensureConnected()
         let id = nextID
         nextID += 1
