@@ -67,3 +67,30 @@ targets:
         PRODUCT_NAME: SessionsWidget
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
+
+  HangarTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ClaudeManager
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.semenov.hangar.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Hangar.app/Hangar
+        BUNDLE_LOADER: $(TEST_HOST)
+
+schemes:
+  ClaudeManager:
+    build:
+      targets:
+        ClaudeManager: all
+        HangarTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - HangarTests

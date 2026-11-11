@@ -11,15 +11,14 @@ struct NewProjectView: View {
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
 
-    /// "Todo App" → "todo-app"
-    private var slug: String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
-        let s = name.lowercased().trimmingCharacters(in: .whitespaces)
-            .components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: "-")
-        return String(s.unicodeScalars.filter { allowed.contains($0) && $0.isASCII })
-    }
+    private var slug: String { ProjectName.slug(name) }
 
-    private var exists: Bool { store.overview?.projects.contains { $0.name == slug } ?? false }
+    // Not while creating: the folder appears on the Mac right away, the list refreshes meanwhile,
+    // and the project being made would be reported as one that already exists.
+    // Compared without case, as the Mac's file system does.
+    private var exists: Bool {
+        !working && (store.overview?.projects.contains { $0.name.lowercased() == slug } ?? false)
+    }
 
     var body: some View {
         NavigationStack {
@@ -69,17 +68,18 @@ struct NewProjectView: View {
 
     private func create() {
         guard !slug.isEmpty, !exists, !working else { return }
+        let name = slug
         working = true
+        error = nil
         Task {
             do {
-                let s = try await API.start(name: slug, create: true)
-                await store.refresh()
+                let s = try await store.create(name, create: true)
                 dismiss()
                 if openWhenReady { onStarted(s) }
             } catch {
                 self.error = error.localizedDescription
+                working = false
             }
-            working = false
         }
     }
 }

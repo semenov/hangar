@@ -65,7 +65,8 @@ enum Macs {
     }
 }
 
-/// A `hangar://pair?...` link, as `hangar pair` shows it.
+/// A `hangar://pair?...` link, as `hangar pair` shows it, or the https form of it that
+/// `hangar pair` prints for sending to the phone (`https://<relay>/pair#...`).
 struct PairLink: Sendable {
     let relay: String
     let macID: String
@@ -74,8 +75,12 @@ struct PairLink: Sendable {
     let name: String
 
     init?(_ string: String) {
-        guard let c = URLComponents(string: string.trimmingCharacters(in: .whitespacesAndNewlines)),
-              c.scheme == "hangar", c.host == "pair" else { return nil }
+        guard var c = URLComponents(string: string.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        if c.scheme == "https" || c.scheme == "http", c.path == "/pair", let fragment = c.percentEncodedFragment {
+            c.percentEncodedQuery = fragment // the web page does the same before opening the app
+        } else if c.scheme != "hangar" || c.host != "pair" {
+            return nil
+        }
         let q = Dictionary((c.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
         guard let relay = q["relay"], !relay.isEmpty, let mac = q["mac"], mac.count == 32,
               let key = Data(base64URL: q["key"] ?? ""), key.count == 32,

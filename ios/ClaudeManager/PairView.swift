@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import VisionKit
 
@@ -10,6 +11,8 @@ struct PairView: View {
     @State private var pairing: PairLink?
     @State private var error: String?
     @State private var done = false
+    @State private var cameraProblem: String? = PairView.cameraDenied
+    @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -18,9 +21,25 @@ struct PairView: View {
                 if let pairing {
                     progress(pairing)
                 } else {
-                    if DataScannerViewController.isSupported {
+                    if let cameraProblem {
+                        VStack(spacing: 10) {
+                            Image(systemName: "camera.fill").font(.title).foregroundStyle(Theme.secondary)
+                            Text(cameraProblem)
+                                .font(.footnote)
+                                .foregroundStyle(Theme.secondary)
+                                .multilineTextAlignment(.center)
+                            if let settings = URL(string: UIApplication.openSettingsURLString) {
+                                Button("Open Settings") { openURL(settings) }.font(.footnote.weight(.semibold))
+                            }
+                        }
+                        .padding(24)
+                        .frame(maxWidth: .infinity)
+                        .background(Theme.card, in: .rect(cornerRadius: 24, style: .continuous))
+                    } else if DataScannerViewController.isSupported {
                         QRScanner { code in
                             if let l = PairLink(code) { start(l) }
+                        } onUnavailable: {
+                            cameraProblem = PairView.cameraDenied ?? "The camera isn't available right now. Paste the link instead."
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.1)))
@@ -31,13 +50,13 @@ struct PairView: View {
                             .multilineTextAlignment(.center)
                     }
                     HStack {
-                        TextField("…or paste the hangar://pair link", text: $pasted)
+                        TextField("…or paste the link `hangar pair` prints", text: $pasted)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .font(.footnote.monospaced())
                             .padding(12)
                             .background(Theme.card, in: .rect(cornerRadius: 12))
-                        Button("Pair") { if let l = PairLink(pasted) { start(l) } else { error = "That isn't a hangar://pair link." } }
+                        Button("Pair") { if let l = PairLink(pasted) { start(l) } else { error = "That isn't a link from `hangar pair`." } }
                             .disabled(pasted.isEmpty)
                     }
                 }
@@ -57,6 +76,14 @@ struct PairView: View {
         }
         .tint(Theme.accentSoft)
         .preferredColorScheme(.dark)
+    }
+
+    /// Why the scanner can't be shown, if camera access was refused.
+    private static var cameraDenied: String? {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .denied, .restricted: "Hangar isn't allowed to use the camera. Allow it in Settings, or paste the link below."
+        default: nil
+        }
     }
 
     private func progress(_ l: PairLink) -> some View {
@@ -94,22 +121,37 @@ struct PairView: View {
 /// VisionKit's live scanner, reporting QR payloads.
 struct QRScanner: UIViewControllerRepresentable {
     let onCode: (String) -> Void
+    var onUnavailable: () -> Void = {}
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
         let vc = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])],
                                            qualityLevel: .balanced, isHighlightingEnabled: true)
         vc.delegate = context.coordinator
-        try? vc.startScanning()
+        do {
+            try vc.startScanning()
+        } catch {
+            let unavailable = onUnavailable
+            Task { @MainActor in unavailable() } // not while the view is being built
+        }
         return vc
     }
 
     func updateUIViewController(_ vc: DataScannerViewController, context: Context) {}
 
-    func makeCoordinator() -> Coordinator { Coordinator(onCode: onCode) }
+    func makeCoordinator() -> Coordinator { Coordinator(onCode: onCode, onUnavailable: onUnavailable) }
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         let onCode: (String) -> Void
-        init(onCode: @escaping (String) -> Void) { self.onCode = onCode }
+        let onUnavailable: () -> Void
+        init(onCode: @escaping (String) -> Void, onUnavailable: @escaping () -> Void) {
+            self.onCode = onCode
+            self.onUnavailable = onUnavailable
+        }
+
+        // Camera access refused at the prompt, or the camera taken away.
+        func dataScanner(_ scanner: DataScannerViewController, becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable) {
+            onUnavailable()
+        }
 
         func dataScanner(_ scanner: DataScannerViewController, didAdd items: [RecognizedItem], allItems: [RecognizedItem]) {
             for case .barcode(let b) in items {

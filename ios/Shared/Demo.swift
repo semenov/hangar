@@ -56,7 +56,7 @@ actor Demo {
 
     func handle(_ method: String, _ path: String, body: Data?) async -> (Int, Data) {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-        let parts = path.split(separator: "?")[0].split(separator: "/").map(String.init) // ["api", ...]
+        let parts = path.split(separator: "?")[0].split(separator: "/").map { $0.removingPercentEncoding ?? String($0) } // ["api", ...]
         switch (method, parts.dropFirst().first ?? "") {
         case ("GET", "version"):
             return json(["version": "demo", "mac": "Demo Mac"])
@@ -71,9 +71,19 @@ actor Demo {
                 L(id: "current-session", label: "Current session", percent: 34, resetsAt: now.addingTimeInterval(2.4 * 3600), resets: ""),
                 L(id: "current-week-all-models", label: "Current week (all models)", percent: 21, resetsAt: now.addingTimeInterval(3.2 * 86400), resets: ""),
             ], fetchedAt: now))
+        case ("POST", "sessions") where parts.last == "restart":
+            guard let i = sessions.firstIndex(where: { "\($0.pid)" == parts.dropFirst(2).first }) else {
+                return error(404, "no such session")
+            }
+            try? await Task.sleep(for: .seconds(1.5))
+            nextPID += 1
+            sessions[i].pid = nextPID
+            sessions[i].startedAt = .now
+            return json(sessions[i])
         case ("POST", "sessions"):
             let name = (obj["name"] as? String) ?? ""
             if obj["create"] as? Bool == true {
+                if projects.contains(where: { $0.name == name }) { return error(409, "project \(name) already exists") }
                 projects.insert(P(name: name, modified: .now, git: false, description: nil), at: 0)
             }
             try? await Task.sleep(for: .seconds(1.5))

@@ -13,7 +13,7 @@ struct Provider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping @Sendable (UsageEntry) -> Void) {
         if context.isPreview {
-            completion(UsageEntry(date: .now, usage: API.cachedUsage ?? .sample))
+            completion(UsageEntry(date: .now, usage: API.cachedUsage(for: Macs.current) ?? .sample))
             return
         }
         Task { completion(UsageEntry(date: .now, usage: await load())) }
@@ -30,7 +30,8 @@ struct Provider: TimelineProvider {
     }
 
     private func load() async -> Usage? {
-        (try? await API.usage(timeout: 20)) ?? API.cachedUsage
+        guard let mac = Macs.current else { return nil }
+        return (try? await API.usage(on: mac, timeout: 20)) ?? API.cachedUsage(for: mac)
     }
 }
 

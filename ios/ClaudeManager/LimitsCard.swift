@@ -4,6 +4,10 @@ import SwiftUI
 struct LimitsCard: View {
     let usage: Usage?
     let error: String?
+    var loading = false
+
+    /// Numbers older than this say when they are from, even if nothing went wrong.
+    private static let freshFor: TimeInterval = 10 * 60
 
     var body: some View {
         Group {
@@ -15,14 +19,17 @@ struct LimitsCard: View {
                         }
                     }
                     // Old numbers look just like new ones: say when they're from and why.
-                    if let problem = error ?? usage.error {
+                    let problem = error ?? usage.error
+                    let old = Date.now.timeIntervalSince(usage.fetchedAt) > Self.freshFor
+                    if problem != nil || old {
                         Label {
-                            Text("As of \(usage.fetchedAt.formatted(.relative(presentation: .named))). \(problem)")
+                            Text("As of \(usage.fetchedAt.formatted(.relative(presentation: .named))). "
+                                 + (loading ? "Updating…" : problem ?? ""))
                         } icon: {
-                            Image(systemName: "exclamationmark.triangle")
+                            Image(systemName: problem != nil && !loading ? "exclamationmark.triangle" : "clock")
                         }
                         .font(.caption)
-                        .foregroundStyle(Theme.amber)
+                        .foregroundStyle(problem != nil && !loading ? Theme.amber : Theme.secondary)
                     }
                 }
             } else if let error {
@@ -65,6 +72,9 @@ struct LimitRing: View {
                 .animation(.snappy, value: limit.percent)
             }
             .frame(width: 84, height: 84)
+            .opacity(limit.hasReset() ? 0.45 : 1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(limit.shortLabel): \(Int(limit.percent.rounded())) percent used")
 
             VStack(spacing: 2) {
                 Text(title.0.uppercased())
@@ -78,7 +88,8 @@ struct LimitRing: View {
                     if let at = limit.resetsAt {
                         HStack(spacing: 3) {
                             Image(systemName: "arrow.counterclockwise")
-                            Text(ResetFormat.countdown(to: at, now: ctx.date))
+                            // Past its reset, the percentage is from the window before.
+                            Text(limit.hasReset(at: ctx.date) ? "has reset" : ResetFormat.countdown(to: at, now: ctx.date))
                         }
                     }
                 }

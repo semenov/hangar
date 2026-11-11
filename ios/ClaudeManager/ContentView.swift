@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var toStop: Session?
     @State private var editing: EditTarget?
     @State private var pairLink: PairLinkItem?
+    @State private var showPair = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
@@ -43,6 +44,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
                 }
                 if store.macs.count > 1 {
                     ToolbarItem(placement: .principal) {
@@ -63,6 +65,7 @@ struct ContentView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showNew = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("New project")
                 }
             }
             .searchable(text: $search, prompt: "Projects")
@@ -70,7 +73,7 @@ struct ContentView: View {
         .tint(Theme.accentSoft)
         .sheet(isPresented: $showSettings) { SettingsView(store: store) }
         .sheet(isPresented: $showNew) {
-            NewProjectView(store: store) { session in open(session) }
+            NewProjectView(store: store) { session in openWhenStarted(session) }
         }
         .sheet(item: $editing) { t in
             ProjectEditor(store: store, project: t.project, original: t.description ?? "", running: t.running)
@@ -95,17 +98,21 @@ struct ContentView: View {
         } message: { n in
             Text(n.message)
         }
-        .task(id: scenePhase) {
-            // Poll while the app is in the foreground.
+        .sheet(isPresented: $showPair) { PairView(store: store) }
+        .onChange(of: scenePhase, initial: true) { _, phase in store.active = phase == .active }
+        .task(id: PollKey(active: scenePhase == .active, mac: store.current?.id)) {
+            // Poll while the app is in the foreground; slower while the Mac can't be reached.
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
                 await store.refresh()
-                try? await Task.sleep(for: .seconds(5))
+                await store.refreshUsageIfReset()
+                guard let delay = store.pollDelay else { return }
+                try? await Task.sleep(for: delay)
             }
         }
         .task(id: scenePhase) {
-            // Limits: once when the app comes to the foreground, and on pull-to-refresh. Each fetch
-            // runs `claude -p /usage` on the Mac, so no timer.
+            // Limits: once when the app comes to the foreground, when a limit's window ends, and on
+            // pull-to-refresh. Each fetch runs `claude -p /usage` on the Mac, so no timer.
             guard scenePhase == .active else { return }
             await store.refreshUsage()
         }
@@ -113,26 +120,35 @@ struct ContentView: View {
 
     private var list: some View {
         List {
-            if let error = store.error {
-                Section { errorRow(error) }
+            if let trouble = store.trouble {
+                Section { troubleRow(trouble) }
             }
-            if store.overview == nil && store.error == nil {
-                ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
+            if store.overview == nil && store.trouble == nil {
+                Section { ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear) }
             }
-            if search.isEmpty {
+            if query.isEmpty {
                 Section("Limits") {
-                    LimitsCard(usage: store.usage, error: store.usageError)
+                    LimitsCard(usage: store.usage, error: store.usageError, loading: store.usageLoading)
                         .listRowBackground(Theme.card)
                 }
             }
-            if search.isEmpty && !store.sessions.isEmpty {
-                Section("Running · \(store.sessions.count)") {
-                    ForEach(store.sessions) { s in sessionRow(s) }
+            if !filteredSessions.isEmpty {
+                Section("Running · \(filteredSessions.count)") {
+                    ForEach(filteredSessions) { s in sessionRow(s) }
                 }
             }
-            if store.overview != nil {
+            if !filteredProjects.isEmpty {
                 Section("Projects") {
                     ForEach(filteredProjects) { p in projectRow(p) }
+                }
+            }
+            if store.overview != nil && filteredSessions.isEmpty && filteredProjects.isEmpty {
+                Section {
+                    Text(query.isEmpty ? "No projects in ~/Dev yet. Tap + to make one." : "Nothing matches “\(query)”.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.secondary)
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
                 }
             }
         }
@@ -145,23 +161,38 @@ struct ContentView: View {
         .animation(.default, value: store.overview)
     }
 
+    private var query: String { search.trimmingCharacters(in: .whitespaces).lowercased() }
+
+    private func matches(_ texts: String?...) -> Bool {
+        query.isEmpty || texts.contains { $0?.lowercased().contains(query) ?? false }
+    }
+
+    // Search covers running sessions too: a project doesn't vanish from it once it is started.
+    private var filteredSessions: [Session] {
+        store.sessions.filter { matches($0.name, $0.dir, $0.description) }
+    }
+
     private var filteredProjects: [Project] {
-        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return q.isEmpty ? store.idleProjects : store.idleProjects.filter {
-            $0.name.lowercased().contains(q) || ($0.description?.lowercased().contains(q) ?? false)
-        }
+        store.idleProjects.filter { matches($0.name, $0.description) }
     }
 
     private func start(_ name: String, open: Bool) {
         Task {
-            if let s = await store.start(name), open { self.open(s) }
+            if let s = await store.start(name), open { openWhenStarted(s) }
         }
     }
 
     private func restart(_ session: Session) {
         Task {
-            if let s = await store.restart(session) { open(s) }
+            if let s = await store.restart(session) { openWhenStarted(s) }
         }
+    }
+
+    /// Opens a session that was just started, unless the app has left the screen meanwhile:
+    /// jumping to Claude (or putting up an alert) later, out of nowhere, would only confuse.
+    private func openWhenStarted(_ s: Session) {
+        guard scenePhase == .active else { return }
+        open(s)
     }
 
     /// Opens a session in Claude, or says why it can't be.
@@ -187,7 +218,7 @@ struct ContentView: View {
             open(s)
         } label: {
             HStack(spacing: 12) {
-                StatusDot(state: store.busy.contains(s.name) ? "starting" : s.state)
+                StatusDot(state: store.busy.contains(s.key) ? "starting" : s.state)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(s.name)
                         .font(.body.weight(.semibold))
@@ -209,7 +240,7 @@ struct ContentView: View {
                     }
                 }
                 Spacer()
-                if store.busy.contains(s.name) {
+                if store.busy.contains(s.key) {
                     ProgressView().frame(width: 36)
                 } else {
                     Button { toStop = s } label: {
@@ -219,14 +250,17 @@ struct ContentView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Stop \(s.name)")
                 }
             }
         }
+        .disabled(store.busy.contains(s.key))
         .listRowBackground(Theme.card)
         .swipeActions {
-            Button("Stop", role: .destructive) { toStop = s }
+            // Not a destructive-role button: that slides the row away before the question is answered.
+            Button("Stop") { toStop = s }
                 .tint(Theme.red)
-            if !s.dir.isEmpty && !s.dir.hasPrefix("/") {
+            if s.isProject {
                 Button { editing = EditTarget(project: s.dir, description: s.description, running: true) } label: {
                     Label("Edit", systemImage: "pencil")
                 }
@@ -238,7 +272,7 @@ struct ContentView: View {
                 Button { openURL(link) } label: { Label("Open in Claude", systemImage: "arrow.up.forward.app") }
                 Button { UIPasteboard.general.url = link } label: { Label("Copy link", systemImage: "link") }
             }
-            if !s.dir.isEmpty && !s.dir.hasPrefix("/") && !s.server {
+            if s.isProject {
                 Button { restart(s) } label: { Label("Restart", systemImage: "arrow.clockwise") }
                 descriptionMenu(project: s.dir, description: s.description, running: true)
             }
@@ -289,6 +323,7 @@ struct ContentView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Start \(p.name)")
                 }
             }
         }
@@ -327,13 +362,25 @@ struct ContentView: View {
         .disabled(store.describing.contains(project))
     }
 
-    private func errorRow(_ error: String) -> some View {
+    private func troubleRow(_ trouble: Store.Trouble) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Something went wrong", systemImage: "exclamationmark.triangle")
+            Label(trouble.title, systemImage: trouble.kind == .offline ? "moon.zzz" : "exclamationmark.triangle")
                 .font(.headline)
                 .foregroundStyle(Theme.amber)
-            Text(error).font(.footnote).foregroundStyle(Theme.secondary)
-            Text(store.current?.name ?? "").font(.footnote).foregroundStyle(Theme.secondary)
+            Text(trouble.message).font(.footnote).foregroundStyle(Theme.secondary)
+            HStack {
+                Text(store.current?.name ?? "")
+                if let at = store.fetchedAt {
+                    Text("· last seen \(at.formatted(.relative(presentation: .named)))")
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(Theme.secondary)
+            if trouble.kind == .notPaired {
+                Button("Pair again") { showPair = true }
+                    .buttonStyle(.borderless)
+                    .font(.footnote.weight(.semibold))
+            }
         }
         .listRowBackground(Theme.card)
     }
@@ -344,6 +391,12 @@ struct ContentView: View {
         if m < 24 * 60 { return "\(m / 60)h \(m % 60)m" }
         return "\(m / (24 * 60))d \(m / 60 % 24)h"
     }
+}
+
+/// Restarts the polling when the app comes forward or another Mac is chosen.
+private struct PollKey: Equatable {
+    let active: Bool
+    let mac: String?
 }
 
 struct PairLinkItem: Identifiable {

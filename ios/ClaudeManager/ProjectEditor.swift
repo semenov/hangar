@@ -3,14 +3,22 @@ import SwiftUI
 /// Rename a project (its folder and session together) and edit its description.
 struct ProjectEditor: View {
     let store: Store
-    let project: String // path under ~/Dev, e.g. "todo-app" or "games/tetris"
-    let original: String
     let running: Bool
+    // Both change as parts of a save succeed, so saving again after an error picks up from there.
+    @State private var project: String // path under ~/Dev, e.g. "todo-app" or "games/tetris"
+    @State private var original: String
     @State private var name = ""
     @State private var text = ""
     @State private var saving = false
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
+
+    init(store: Store, project: String, original: String, running: Bool) {
+        self.store = store
+        self.running = running
+        _project = State(initialValue: project)
+        _original = State(initialValue: original)
+    }
 
     private var currentName: String { (project as NSString).lastPathComponent }
     private var parent: String {
@@ -20,12 +28,15 @@ struct ProjectEditor: View {
     private var newName: String { name.trimmingCharacters(in: .whitespaces) }
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var describing: Bool { store.describing.contains(project) }
-    private var nameValid: Bool {
-        !newName.isEmpty && newName.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil
-    }
+    private var nameValid: Bool { ProjectName.isValid(newName) }
     // Not while saving: the list refreshes during a rename and already has the folder's new name.
+    // The whole path is compared (the project may be in a subfolder), without case, as the Mac's
+    // file system does; changing only the case of the name is fine.
     private var nameTaken: Bool {
-        !saving && newName != currentName && (store.overview?.projects.contains { $0.name == newName } ?? false)
+        let folder = (project as NSString).deletingLastPathComponent
+        let target = (folder.isEmpty ? newName : folder + "/" + newName).lowercased()
+        return !saving && target != project.lowercased()
+            && (store.overview?.projects.contains { $0.name.lowercased() == target } ?? false)
     }
     private var changed: Bool { newName != currentName || trimmed != original }
 
@@ -60,7 +71,14 @@ struct ProjectEditor: View {
                         .disabled(describing)
                     Button {
                         Task {
-                            do { text = try await store.regenerateDescription(project) } catch { self.error = error.localizedDescription }
+                            do {
+                                // Saved on the Mac already, as Claude's: not something Save has to keep.
+                                text = try await store.regenerateDescription(project)
+                                original = text
+                                error = nil
+                            } catch {
+                                self.error = error.localizedDescription
+                            }
                         }
                     } label: {
                         HStack {
@@ -73,7 +91,7 @@ struct ProjectEditor: View {
                 } header: {
                     Text("Description")
                 } footer: {
-                    Text("A description you write is kept: the daily `hangar describe` doesn't replace it.")
+                    Text("A description you write is kept: the daily `hangar describe` doesn't replace it. One from Claude is saved as soon as it is written.")
                 }
 
                 if let error {
@@ -110,12 +128,13 @@ struct ProjectEditor: View {
         Task {
             defer { saving = false }
             do {
-                var path = project
                 if newName != currentName {
-                    path = try await store.rename(project, to: newName)
+                    project = try await store.rename(project, to: newName)
+                    name = currentName
                 }
                 if trimmed != original {
-                    try await store.saveDescription(path, trimmed)
+                    try await store.saveDescription(project, trimmed)
+                    original = trimmed
                 }
                 dismiss()
             } catch {
