@@ -56,6 +56,10 @@ type rpcRequest struct {
 	Body   json.RawMessage `json:"body,omitempty"`
 	// The ETag of the response the phone already has: an unchanged GET answers 304 with no body.
 	IfNoneMatch string `json:"if_none_match,omitempty"`
+	// Set on requests that change something: the phone sends the request again with the same key
+	// when its connection dropped before the answer, and gets the first answer instead of a
+	// second start, stop or rename.
+	Key string `json:"key,omitempty"`
 }
 
 type rpcResponse struct {
@@ -322,7 +326,7 @@ func (m *macMux) handshake(ch uint32, pc *phoneChannel, payload []byte) {
 		m.closeChan(ch, "bad keys")
 		return
 	}
-	w := map[string]any{"t": "welcome", "eph": eph.PublicKey().Bytes(), "name": conf().MacName}
+	w := map[string]any{"t": "welcome", "eph": eph.PublicKey().Bytes(), "name": conf().MacName, "api": apiVersion}
 	for _, c := range h.Compress {
 		if c == "deflate" {
 			pc.deflate = true
@@ -354,24 +358,40 @@ func (m *macMux) serveRequest(ch uint32, pc *phoneChannel, plain []byte) {
 		m.closeChan(ch, "")
 		return
 	}
-	if !strings.HasPrefix(req.Path, "/api/") {
-		req.Path = "/api/" + strings.TrimPrefix(req.Path, "/")
+	out := replays.do(hex.EncodeToString(pc.phoneKey), req, func() rpcResponse { return callAPI(m.api, req) })
+	resp, _ := json.Marshal(out)
+	m.send(ch, pc, resp)
+}
+
+// callAPI runs one request through the API's handlers. It never panics: a path the phone made up
+// (a folder name with a space, a stray %) is answered with an error.
+func callAPI(api http.Handler, req rpcRequest) (out rpcResponse) {
+	out.ID = req.ID
+	defer func() {
+		if p := recover(); p != nil {
+			log.Printf("relay: %s %s panicked: %v", req.Method, req.Path, p)
+			body, _ := json.Marshal(map[string]string{"error": fmt.Sprint("internal error: ", p)})
+			out.Status, out.Body, out.ETag = http.StatusInternalServerError, body, ""
+		}
+	}()
+	path := req.Path
+	if !strings.HasPrefix(path, "/api/") {
+		path = "/api/" + strings.TrimPrefix(path, "/")
 	}
-	var body *bytes.Reader
-	if len(req.Body) > 0 {
-		body = bytes.NewReader(req.Body)
-	} else {
-		body = bytes.NewReader(nil)
+	r, err := http.NewRequest(req.Method, "http://hangar"+path, bytes.NewReader(req.Body))
+	if err != nil {
+		out.Status = http.StatusBadRequest
+		out.Body, _ = json.Marshal(map[string]string{"error": "bad request: " + err.Error()})
+		return out
 	}
-	r := httptest.NewRequest(req.Method, req.Path, body)
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	m.api.ServeHTTP(w, r)
+	api.ServeHTTP(w, r)
 	respBody := bytes.TrimSpace(w.Body.Bytes())
 	if !json.Valid(respBody) {
 		respBody, _ = json.Marshal(string(respBody))
 	}
-	out := rpcResponse{ID: req.ID, Status: w.Code, Body: respBody}
+	out.Status, out.Body = w.Code, respBody
 	if req.Method == http.MethodGet && w.Code == http.StatusOK {
 		sum := sha256.Sum256(respBody)
 		out.ETag = hex.EncodeToString(sum[:12])
@@ -379,8 +399,59 @@ func (m *macMux) serveRequest(ch uint32, pc *phoneChannel, plain []byte) {
 			out.Status, out.Body = http.StatusNotModified, json.RawMessage("null")
 		}
 	}
-	resp, _ := json.Marshal(out)
-	m.send(ch, pc, resp)
+	return out
+}
+
+// replayCache remembers the answers to keyed requests for a while, per phone. A request that
+// arrives again with the same key waits for the first one (if it is still running) and gets its
+// answer.
+type replayCache struct {
+	mu      sync.Mutex
+	entries map[string]*replayEntry
+}
+
+type replayEntry struct {
+	done chan struct{}
+	resp rpcResponse
+	at   time.Time
+}
+
+const replayTTL = 10 * time.Minute
+
+var replays = &replayCache{entries: map[string]*replayEntry{}}
+
+func (c *replayCache) do(phone string, req rpcRequest, run func() rpcResponse) rpcResponse {
+	if req.Key == "" || req.Method == http.MethodGet {
+		return run()
+	}
+	k := phone + "/" + req.Key
+	c.mu.Lock()
+	for key, e := range c.entries {
+		select {
+		case <-e.done:
+			if time.Since(e.at) > replayTTL {
+				delete(c.entries, key)
+			}
+		default:
+		}
+	}
+	e, seen := c.entries[k]
+	if !seen {
+		e = &replayEntry{done: make(chan struct{})}
+		c.entries[k] = e
+	}
+	c.mu.Unlock()
+	if seen {
+		<-e.done
+		resp := e.resp
+		resp.ID = req.ID
+		log.Printf("relay: %s %s again (same key): answering with the first result", req.Method, req.Path)
+		return resp
+	}
+	e.resp = run()
+	e.at = time.Now()
+	close(e.done)
+	return e.resp
 }
 
 // Messages on a channel that agreed to "deflate" start with a flag byte: 0 = as is, 1 = raw DEFLATE

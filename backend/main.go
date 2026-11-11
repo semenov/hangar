@@ -110,6 +110,14 @@ func startSession(req startRequest) (Session, error) {
 		return Session{}, apiError{400, "invalid directory"}
 	}
 	dir := filepath.Join(devRoot, req.Dir)
+	// A new project whose session doesn't start leaves no folder behind (if it is still empty):
+	// otherwise the next try says the project already exists.
+	created := false
+	undoCreate := func() {
+		if created {
+			os.Remove(dir)
+		}
+	}
 
 	sessions, err := findSessions()
 	if err != nil {
@@ -132,6 +140,7 @@ func startSession(req startRequest) (Session, error) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return Session{}, err
 		}
+		created = true
 	} else {
 		return Session{}, apiError{404, "no such project: " + req.Dir}
 	}
@@ -139,6 +148,7 @@ func startSession(req startRequest) (Session, error) {
 	os.Remove(statePath(req.Name))
 	exited, err := spawnKeeper(req.Name, dir, req.Resume, req.Retitle)
 	if err != nil {
+		undoCreate()
 		return Session{}, err
 	}
 	addDesired(req.Name, dir)
@@ -149,6 +159,7 @@ func startSession(req startRequest) (Session, error) {
 		select {
 		case <-exited:
 			removeDesired(req.Name) // it would only fail again after a reboot
+			undoCreate()
 			return Session{}, apiError{500, "the session exited right away: " + logTail(req.Name)}
 		case <-time.After(500 * time.Millisecond):
 		}
@@ -242,7 +253,8 @@ func restartSession(pid int) (Session, error) {
 // and the server need to agree on something new.
 var version = "dev"
 
-const apiVersion = 1
+// 2: requests carry a key and can be sent again safely; the handshake's welcome says the version.
+const apiVersion = 2
 
 func main() {
 	cmd, args := "", []string(nil)
